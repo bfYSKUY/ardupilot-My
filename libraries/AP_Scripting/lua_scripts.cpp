@@ -18,15 +18,7 @@
 #include <GCS_MAVLink/GCS.h>
 #include "AP_Scripting.h"
 
-#include "lua_generated_bindings.h"
-
-#ifndef SCRIPTING_DIRECTORY
-  #if HAL_OS_FATFS_IO
-    #define SCRIPTING_DIRECTORY "/APM/scripts"
-  #else
-    #define SCRIPTING_DIRECTORY "./scripts"
-  #endif //HAL_OS_FATFS_IO
-#endif // SCRIPTING_DIRECTORY
+#include <AP_Scripting/lua_generated_bindings.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -371,8 +363,20 @@ void lua_scripts::run(void) {
     load_generated_bindings(L);
 
     // Scan the filesystem in an appropriate manner and autostart scripts
-    load_all_scripts_in_dir(L, SCRIPTING_DIRECTORY);
-    load_all_scripts_in_dir(L, "@ROMFS/scripts");
+    // Skip those directores disabled with SCR_DIR_DISABLE param
+    uint16_t dir_disable = AP_Scripting::get_singleton()->get_disabled_dir();
+    bool loaded = false;
+    if ((dir_disable & uint16_t(AP_Scripting::SCR_DIR::SCRIPTS)) == 0) {
+        load_all_scripts_in_dir(L, SCRIPTING_DIRECTORY);
+        loaded = true;
+    }
+    if ((dir_disable & uint16_t(AP_Scripting::SCR_DIR::ROMFS)) == 0) {
+        load_all_scripts_in_dir(L, "@ROMFS/scripts");
+        loaded = true;
+    }
+    if (!loaded) {
+        gcs().send_text(MAV_SEVERITY_CRITICAL, "Lua: All directory's disabled see SCR_DIR_DISABLE");
+    }
 
 #ifndef __clang_analyzer__
     succeeded_initial_load = true;

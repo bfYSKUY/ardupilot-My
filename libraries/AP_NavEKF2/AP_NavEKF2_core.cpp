@@ -3,11 +3,8 @@
 #include "AP_NavEKF2.h"
 #include "AP_NavEKF2_core.h"
 #include <AP_AHRS/AP_AHRS.h>
-#include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_GPS/AP_GPS.h>
-
-#include <stdio.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -72,7 +69,7 @@ bool NavEKF2_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
       than 100Hz is downsampled. For 50Hz main loop rate we need a
       shorter buffer.
      */
-    if (AP::ins().get_sample_rate() < 100) {
+    if (AP::ins().get_loop_rate_hz() < 100) {
         imu_buffer_length = 13;
     } else {
         // maximum 260 msec delay at 100 Hz fusion rate
@@ -101,7 +98,7 @@ bool NavEKF2_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
     if(!storedRangeBeacon.init(imu_buffer_length)) {
         return false;
     }
-    if(!storedExtNav.init(OBS_BUFFER_LENGTH)) {
+    if(!storedExtNav.init(EXTNAV_BUFFER_LENGTH)) {
         return false;
     }
     if(!storedIMU.init(imu_buffer_length)) {
@@ -109,6 +106,9 @@ bool NavEKF2_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
     }
     if(!storedOutput.init(imu_buffer_length)) {
         return false;
+    }
+    if(!storedExtNavVel.init(EXTNAV_BUFFER_LENGTH)) {
+       return false;
     }
 
     if ((yawEstimator == nullptr) && (frontend->_gsfRunMask & (1U<<core_index))) {
@@ -171,7 +171,6 @@ void NavEKF2_core::InitialiseVariables()
     lastVelReset_ms = 0;
     lastPosResetD_ms = 0;
     lastRngMeasTime_ms = 0;
-    terrainHgtStableSet_ms = 0;
 
     // initialise other variables
     gpsNoiseScaler = 1.0f;
@@ -197,7 +196,6 @@ void NavEKF2_core::InitialiseVariables()
     inhibitGndState = false;
     flowGyroBias.x = 0;
     flowGyroBias.y = 0;
-    heldVelNE.zero();
     PV_AidingMode = AID_NONE;
     PV_AidingModePrev = AID_NONE;
     posTimeout = true;
@@ -227,12 +225,6 @@ void NavEKF2_core::InitialiseVariables()
     tiltErrFilt = 1.0f;
     tiltAlignComplete = false;
     stateIndexLim = 23;
-    baroStoreIndex = 0;
-    rangeStoreIndex = 0;
-    magStoreIndex = 0;
-    gpsStoreIndex = 0;
-    tasStoreIndex = 0;
-    ofStoreIndex = 0;
     delAngCorrection.zero();
     velErrintegral.zero();
     posErrintegral.zero();
@@ -240,8 +232,6 @@ void NavEKF2_core::InitialiseVariables()
     gpsNotAvailable = true;
     motorsArmed = false;
     prevMotorsArmed = false;
-    innovationIncrement = 0;
-    lastInnovation = 0;
     memset(&gpsCheckStatus, 0, sizeof(gpsCheckStatus));
     gpsSpdAccPass = false;
     ekfInnovationsPass = false;
@@ -291,7 +281,6 @@ void NavEKF2_core::InitialiseVariables()
     // range beacon fusion variables
     memset((void *)&rngBcnDataNew, 0, sizeof(rngBcnDataNew));
     memset((void *)&rngBcnDataDelayed, 0, sizeof(rngBcnDataDelayed));
-    rngBcnStoreIndex = 0;
     lastRngBcnPassTime_ms = 0;
     rngBcnTestRatio = 0.0f;
     rngBcnHealth = false;
@@ -337,6 +326,12 @@ void NavEKF2_core::InitialiseVariables()
     extNavUsedForPos = false;
     extNavYawResetRequest = false;
 
+    extNavVelNew = {};
+    extNavVelDelayed = {};
+    extNavVelToFuse = false;
+    extNavVelMeasTime_ms = 0;
+    useExtNavVel = false;
+
     // zero data buffers
     storedIMU.reset();
     storedGPS.reset();
@@ -346,6 +341,7 @@ void NavEKF2_core::InitialiseVariables()
     storedOutput.reset();
     storedRangeBeacon.reset();
     storedExtNav.reset();
+    storedExtNavVel.reset();
 
     // now init mag variables
     yawAlignComplete = false;
@@ -1076,6 +1072,23 @@ void NavEKF2_core::CovariancePrediction()
         zeroCols(P,22,23);
     }
 
+    if (!inhibitMagStates && lastInhibitMagStates) {
+        // when starting 3D fusion we want to reset body mag variances
+        needMagBodyVarReset = true;
+    }
+
+    if (needMagBodyVarReset) {
+        // reset body mag variances
+        needMagBodyVarReset = false;
+        zeroCols(P,19,21);
+        zeroRows(P,19,21);
+        P[19][19] = sq(frontend->_magNoise);
+        P[20][20] = P[19][19];
+        P[21][21] = P[19][19];
+    }
+
+    lastInhibitMagStates = inhibitMagStates;
+
     nextP[0][0] = daxNoise*SQ[3] + SPP[5]*(P[0][0]*SPP[5] - P[1][0]*SPP[4] + P[9][0]*SPP[22] + P[12][0]*SPP[18] + P[2][0]*(2*q1*SF[3] - 2*q2*SF[4] - 2*q3*SF[5] + 2*q0*SF[9])) - SPP[4]*(P[0][1]*SPP[5] - P[1][1]*SPP[4] + P[9][1]*SPP[22] + P[12][1]*SPP[18] + P[2][1]*(2*q1*SF[3] - 2*q2*SF[4] - 2*q3*SF[5] + 2*q0*SF[9])) + SPP[8]*(P[0][2]*SPP[5] + P[2][2]*SPP[8] + P[9][2]*SPP[22] + P[12][2]*SPP[18] - P[1][2]*(2*q0*SF[6] - 2*q3*SF[7] - 2*q1*SF[10] + 2*q2*SF[12])) + SPP[22]*(P[0][9]*SPP[5] - P[1][9]*SPP[4] + P[9][9]*SPP[22] + P[12][9]*SPP[18] + P[2][9]*(2*q1*SF[3] - 2*q2*SF[4] - 2*q3*SF[5] + 2*q0*SF[9])) + SPP[18]*(P[0][12]*SPP[5] - P[1][12]*SPP[4] + P[9][12]*SPP[22] + P[12][12]*SPP[18] + P[2][12]*(2*q1*SF[3] - 2*q2*SF[4] - 2*q3*SF[5] + 2*q0*SF[9]));
     nextP[0][1] = SPP[6]*(P[0][1]*SPP[5] - P[1][1]*SPP[4] + P[2][1]*SPP[8] + P[9][1]*SPP[22] + P[12][1]*SPP[18]) - SPP[2]*(P[0][0]*SPP[5] - P[1][0]*SPP[4] + P[2][0]*SPP[8] + P[9][0]*SPP[22] + P[12][0]*SPP[18]) + SPP[22]*(P[0][10]*SPP[5] - P[1][10]*SPP[4] + P[2][10]*SPP[8] + P[9][10]*SPP[22] + P[12][10]*SPP[18]) + SPP[17]*(P[0][13]*SPP[5] - P[1][13]*SPP[4] + P[2][13]*SPP[8] + P[9][13]*SPP[22] + P[12][13]*SPP[18]) - (2*q0*SF[5] - 2*q1*SF[4] - 2*q2*SF[3] + 2*q3*SF[9])*(P[0][2]*SPP[5] - P[1][2]*SPP[4] + P[2][2]*SPP[8] + P[9][2]*SPP[22] + P[12][2]*SPP[18]);
     nextP[1][1] = dayNoise*SQ[3] - SPP[2]*(P[1][0]*SPP[6] - P[0][0]*SPP[2] - P[2][0]*SPP[9] + P[10][0]*SPP[22] + P[13][0]*SPP[17]) + SPP[6]*(P[1][1]*SPP[6] - P[0][1]*SPP[2] - P[2][1]*SPP[9] + P[10][1]*SPP[22] + P[13][1]*SPP[17]) - SPP[9]*(P[1][2]*SPP[6] - P[0][2]*SPP[2] - P[2][2]*SPP[9] + P[10][2]*SPP[22] + P[13][2]*SPP[17]) + SPP[22]*(P[1][10]*SPP[6] - P[0][10]*SPP[2] - P[2][10]*SPP[9] + P[10][10]*SPP[22] + P[13][10]*SPP[17]) + SPP[17]*(P[1][13]*SPP[6] - P[0][13]*SPP[2] - P[2][13]*SPP[9] + P[10][13]*SPP[22] + P[13][13]*SPP[17]);
@@ -1479,13 +1492,6 @@ void NavEKF2_core::StoreQuatRotate(const Quaternion &deltaQuat)
         storedOutput[i].quat = storedOutput[i].quat*deltaQuat;
     }
     outputDataDelayed.quat = outputDataDelayed.quat*deltaQuat;
-}
-
-// calculate nav to body quaternions from body to nav rotation matrix
-void NavEKF2_core::quat2Tbn(Matrix3f &Tbn, const Quaternion &quat) const
-{
-    // Calculate the body to nav cosine matrix
-    quat.rotation_matrix(Tbn);
 }
 
 // force symmetry on the covariance matrix to prevent ill-conditioning

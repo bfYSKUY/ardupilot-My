@@ -3,9 +3,7 @@
 #include "AP_NavEKF2.h"
 #include "AP_NavEKF2_core.h"
 #include <AP_AHRS/AP_AHRS.h>
-#include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
-#include <AP_GPS/AP_GPS.h>
 
 #include <stdio.h>
 
@@ -107,6 +105,7 @@ void NavEKF2_core::setWindMagStateLearningMode()
     bool setMagInhibit = !magCalRequested || magCalDenied;
     if (!inhibitMagStates && setMagInhibit) {
         inhibitMagStates = true;
+        // variances will be reset in CovariancePrediction
     } else if (inhibitMagStates && !setMagInhibit) {
         inhibitMagStates = false;
         if (magFieldLearned) {
@@ -119,7 +118,7 @@ void NavEKF2_core::setWindMagStateLearningMode()
             P[21][21] = bodyMagFieldVar.z;
         } else {
             // set the variances equal to the observation variances
-            for (uint8_t index=18; index<=21; index++) {
+            for (uint8_t index=16; index<=21; index++) {
                 P[index][index] = sq(frontend->_magNoise);
             }
 
@@ -234,7 +233,6 @@ void NavEKF2_core::setAidingMode()
 
         // Check if the loss of position accuracy has become critical
         bool posAidLossCritical = false;
-        bool posAidLossPending = false;
         if (!posAiding ) {
             uint16_t maxLossTime_ms;
             if (!velAiding) {
@@ -245,9 +243,6 @@ void NavEKF2_core::setAidingMode()
             posAidLossCritical = (imuSampleTime_ms - lastRngBcnPassTime_ms > maxLossTime_ms) &&
                                  (imuSampleTime_ms - lastExtNavPassTime_ms > maxLossTime_ms) &&
                                  (imuSampleTime_ms - lastPosPassTime_ms > maxLossTime_ms);
-            posAidLossPending = (imuSampleTime_ms - lastRngBcnPassTime_ms > (uint32_t)frontend->_gsfResetDelay) &&
-                                (imuSampleTime_ms - lastExtNavPassTime_ms > (uint32_t)frontend->_gsfResetDelay) &&
-                                (imuSampleTime_ms - lastPosPassTime_ms > (uint32_t)frontend->_gsfResetDelay);
         }
 
         if (attAidLossCritical) {
@@ -267,9 +262,6 @@ void NavEKF2_core::setAidingMode()
             velTimeout = true;
             rngBcnTimeout = true;
             gpsNotAvailable = true;
-        } else if (posAidLossPending) {
-            // attempt to reset the yaw to the estimate from the EKF-GSF algorithm
-            EKFGSF_yaw_reset_request_ms = imuSampleTime_ms;
         }
         break;
     }
@@ -329,9 +321,11 @@ void NavEKF2_core::setAidingMode()
             if (canUseExtNav) {
                 gcs().send_text(MAV_SEVERITY_INFO, "EKF2 IMU%u is using external nav data",(unsigned)imu_index);
                 gcs().send_text(MAV_SEVERITY_INFO, "EKF2 IMU%u initial pos NED = %3.1f,%3.1f,%3.1f (m)",(unsigned)imu_index,(double)extNavDataDelayed.pos.x,(double)extNavDataDelayed.pos.y,(double)extNavDataDelayed.pos.z);
-                // handle yaw reset as special case
-                extNavYawResetRequest = true;
-                controlMagYawReset();
+                //handle yaw reset as special case only if compass is disabled
+                if (!use_compass()) {
+                    extNavYawResetRequest = true;
+                    controlMagYawReset();
+                }
                 // handle height reset as special case
                 hgtMea = -extNavDataDelayed.pos.z;
                 posDownObsNoise = sq(constrain_float(extNavDataDelayed.posErr, 0.1f, 10.0f));
@@ -518,7 +512,7 @@ void  NavEKF2_core::updateFilterStatus(void)
     bool doingFlowNav = (PV_AidingMode == AID_RELATIVE) && flowDataValid;
     bool doingWindRelNav = !tasTimeout && assume_zero_sideslip();
     bool doingNormalGpsNav = !posTimeout && (PV_AidingMode == AID_ABSOLUTE);
-    bool someVertRefData = (!velTimeout && useGpsVertVel) || !hgtTimeout;
+    bool someVertRefData = (!velTimeout && (useGpsVertVel || useExtNavVel)) || !hgtTimeout;
     bool someHorizRefData = !(velTimeout && posTimeout && tasTimeout) || doingFlowNav;
     bool optFlowNavPossible = flowDataValid && delAngBiasLearned;
     bool gpsNavPossible = !gpsNotAvailable && gpsGoodToAlign && delAngBiasLearned;
@@ -570,7 +564,7 @@ void NavEKF2_core::runYawEstimatorCorrection()
         if (gpsDataToFuse) {
             Vector2f gpsVelNE = Vector2f(gpsDataDelayed.vel.x, gpsDataDelayed.vel.y);
             float gpsVelAcc = fmaxf(gpsSpdAccuracy, frontend->_gpsHorizVelNoise);
-            yawEstimator->pushVelData(gpsVelNE, gpsVelAcc);
+            yawEstimator->fuseVelData(gpsVelNE, gpsVelAcc);
         }
 
         // action an external reset request

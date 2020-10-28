@@ -37,7 +37,7 @@
  * modules are configured with all ubx binary messages off, which
  * would mean we would never detect it.
  */
-#define UBLOX_SET_BINARY "\265\142\006\001\003\000\001\006\001\022\117$PUBX,41,1,0023,0001,115200,0*1C\r\n"
+#define UBLOX_SET_BINARY_115200 "\265\142\006\001\003\000\001\006\001\022\117$PUBX,41,1,0023,0001,115200,0*1C\r\n"
 
 // a varient with 230400 baudrate
 #define UBLOX_SET_BINARY_230400 "\265\142\006\001\003\000\001\006\001\022\117$PUBX,41,1,0023,0001,230400,0*1E\r\n"
@@ -349,9 +349,11 @@ private:
         uint32_t s_acc; 
         uint32_t head_acc; 
         uint16_t p_dop; 
-        uint8_t reserved1[6]; 
-        uint32_t headVeh;
-        uint8_t reserved2[4]; 
+        uint8_t flags3;
+        uint8_t reserved1[5];
+        int32_t headVeh;
+        int16_t magDec;
+        uint16_t magAcc;
     };
     struct PACKED ubx_nav_relposned {
         uint8_t version;
@@ -626,7 +628,8 @@ private:
         UBLOX_6,
         UBLOX_7,
         UBLOX_M8,
-        UBLOX_F9 = 0x80, // comes from MON_VER hwVersion string
+        UBLOX_F9 = 0x80, // comes from MON_VER hwVersion/swVersion strings
+        UBLOX_M9 = 0x81, // comes from MON_VER hwVersion/swVersion strings
         UBLOX_UNKNOWN_HARDWARE_GENERATION = 0xff // not in the ublox spec used for
                                                  // flagging state in the driver
     };

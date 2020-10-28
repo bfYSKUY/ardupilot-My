@@ -171,10 +171,8 @@ public:
     // Methods
     virtual void update(bool skip_ins_update=false) = 0;
 
-    // report any reason for why the backend is refusing to initialise
-    virtual const char *prearm_failure_reason(void) const {
-        return nullptr;
-    }
+    // returns false if we fail arming checks, in which case the buffer will be populated with a failure message
+    virtual bool pre_arm_check(char *failure_msg, uint8_t failure_msg_len) const = 0;
 
     // check all cores providing consistent attitudes for prearm checks
     virtual bool attitudes_consistent(char *failure_msg, const uint8_t failure_msg_len) const { return true; }
@@ -210,6 +208,11 @@ public:
     // return a smoothed and corrected gyro vector in radians/second
     virtual const Vector3f &get_gyro(void) const = 0;
 
+    // return primary accels, for lua
+    const Vector3f &get_accel(void) const {
+        return AP::ins().get_accel();
+    }
+    
     // return a smoothed and corrected gyro vector in radians/second using the latest ins data (which may not have been consumed by the EKF yet)
     Vector3f get_gyro_latest(void) const;
 
@@ -260,7 +263,7 @@ public:
 
     // return an airspeed estimate if available. return true
     // if we have an estimate
-    virtual bool airspeed_estimate(float &airspeed_ret) const WARN_IF_UNUSED;
+    virtual bool airspeed_estimate(float &airspeed_ret) const WARN_IF_UNUSED = 0;
 
     // return a true airspeed estimate (navigation airspeed) if
     // available. return true if we have an estimate
@@ -272,6 +275,12 @@ public:
         return true;
     }
 
+    // return a synthetic airspeed estimate (one derived from sensors
+    // other than an actual airspeed sensor), if available. return
+    // true if we have a synthetic airspeed.  ret will not be modified
+    // on failure.
+    virtual bool synthetic_airspeed(float &ret) const WARN_IF_UNUSED = 0;
+
     // get apparent to true airspeed ratio
     float get_EAS2TAS(void) const;
 
@@ -279,6 +288,12 @@ public:
     // opposed to an IMU estimate
     bool airspeed_sensor_enabled(void) const {
         return _airspeed != nullptr && _airspeed->use() && _airspeed->healthy();
+    }
+
+    // return true if airspeed comes from a specific airspeed sensor, as
+    // opposed to an IMU estimate
+    bool airspeed_sensor_enabled(uint8_t airspeed_index) const {
+        return _airspeed != nullptr && _airspeed->use(airspeed_index) && _airspeed->healthy(airspeed_index);
     }
 
     // return the parameter AHRS_WIND_MAX in metres per second
@@ -465,8 +480,6 @@ public:
     // is the AHRS subsystem healthy?
     virtual bool healthy(void) const = 0;
 
-    virtual bool prearm_healthy(void) const { return healthy(); }
-
     // true if the AHRS has completed initialisation
     virtual bool initialised(void) const {
         return true;
@@ -515,7 +528,7 @@ public:
     // indicates perfect consistency between the measurement and the EKF solution and a value of of 1 is the maximum
     // inconsistency that will be accepted by the filter
     // boolean false is returned if variances are not available
-    virtual bool get_variances(float &velVar, float &posVar, float &hgtVar, Vector3f &magVar, float &tasVar, Vector2f &offset) const {
+    virtual bool get_variances(float &velVar, float &posVar, float &hgtVar, Vector3f &magVar, float &tasVar) const {
         return false;
     }
 
@@ -543,12 +556,22 @@ public:
 
     // rotate a 2D vector from earth frame to body frame
     // in result, x is forward, y is right
-    Vector2f rotate_earth_to_body2D(const Vector2f &ef_vector) const;
+    Vector2f earth_to_body2D(const Vector2f &ef_vector) const;
 
     // rotate a 2D vector from earth frame to body frame
     // in input, x is forward, y is right
-    Vector2f rotate_body_to_earth2D(const Vector2f &bf) const;
+    Vector2f body_to_earth2D(const Vector2f &bf) const;
 
+    // convert a vector from body to earth frame
+    Vector3f body_to_earth(const Vector3f &v) const {
+        return v * get_rotation_body_to_ned();
+    }
+
+    // convert a vector from earth to body frame
+    Vector3f earth_to_body(const Vector3f &v) const {
+        return get_rotation_body_to_ned().mul_transpose(v);
+    }
+    
     virtual void update_AOA_SSA(void);
 
     // get_hgt_ctrl_limit - get maximum height to be observed by the
@@ -556,8 +579,15 @@ public:
     // false when no limiting is required
     virtual bool get_hgt_ctrl_limit(float &limit) const WARN_IF_UNUSED { return false; };
 
+    // Set to true if the terrain underneath is stable enough to be used as a height reference
+    // this is not related to terrain following
+    virtual void set_terrain_hgt_stable(bool stable) {}
+
     // Write position and quaternion data from an external navigation system
-    virtual void writeExtNavData(const Vector3f &pos, const Quaternion &quat, float posErr, float angErr, uint32_t timeStamp_ms, uint32_t resetTime_ms) { }
+    virtual void writeExtNavData(const Vector3f &pos, const Quaternion &quat, float posErr, float angErr, uint32_t timeStamp_ms, uint16_t delay_ms, uint32_t resetTime_ms) { }
+
+    // Write velocity data from an external navigation system
+    virtual void writeExtNavVelData(const Vector3f &vel, float err, uint32_t timeStamp_ms, uint16_t delay_ms) { }
 
     // return current vibration vector for primary IMU
     Vector3f get_vibration(void) const;
@@ -681,12 +711,6 @@ private:
 
 #include "AP_AHRS_DCM.h"
 #include "AP_AHRS_NavEKF.h"
-
-#if AP_AHRS_NAVEKF_AVAILABLE
-#define AP_AHRS_TYPE AP_AHRS_NavEKF
-#else
-#define AP_AHRS_TYPE AP_AHRS
-#endif
 
 namespace AP {
     AP_AHRS &ahrs();

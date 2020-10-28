@@ -32,6 +32,16 @@ static_assert(sizeof(systime_t) == 2, "expected 16 bit systime_t");
 static_assert(sizeof(systime_t) == 4, "expected 32 bit systime_t");
 #endif
 
+#if defined(HAL_EXPECTED_SYSCLOCK)
+#ifdef STM32_SYS_CK
+static_assert(HAL_EXPECTED_SYSCLOCK == STM32_SYS_CK, "unexpected STM32_SYS_CK value");
+#elif defined(STM32_HCLK)
+static_assert(HAL_EXPECTED_SYSCLOCK == STM32_HCLK, "unexpected STM32_HCLK value");
+#else
+#error "unknown system clock"
+#endif
+#endif
+
 extern const AP_HAL::HAL& hal;
 extern "C"
 {
@@ -73,7 +83,7 @@ static void save_fault_watchdog(uint16_t line, FaultType fault_type, uint32_t fa
             pd.fault_thd_prio = tp->prio;
             // get first 4 bytes of the name, but only of first fault
             if (tp->name && pd.thread_name4[0] == 0) {
-                strncpy(pd.thread_name4, tp->name, 4);
+                strncpy_noterm(pd.thread_name4, tp->name, 4);
             }
         }
         pd.fault_icsr = SCB->ICSR;
@@ -207,6 +217,7 @@ void init()
 
 void panic(const char *errormsg, ...)
 {
+#ifndef HAL_BOOTLOADER_BUILD
     va_list ap;
 
     va_start(ap, errormsg);
@@ -218,6 +229,12 @@ void panic(const char *errormsg, ...)
         vprintf(errormsg, ap);
         hal.scheduler->delay(500);
     }
+#else
+    // we don't support variable args in bootlaoder
+    chSysHalt(errormsg);
+    // we will never get here, this just to silence a warning
+    while (1) {}
+#endif
 }
 
 uint32_t micros()
@@ -244,5 +261,32 @@ uint64_t millis64()
 {
     return hrt_micros64() / 1000U;
 }
+
+
+uint32_t native_micros()
+{
+    return micros();
+}
+
+uint32_t native_millis()
+{
+    return millis();
+}
+
+uint16_t native_millis16()
+{
+    return millis16();
+}
+
+uint64_t native_micros64()
+{
+    return micros64();
+}
+
+uint64_t native_millis64()
+{
+    return millis64();
+}
+
 
 } // namespace AP_HAL

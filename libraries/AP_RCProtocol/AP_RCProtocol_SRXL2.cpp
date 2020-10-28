@@ -18,11 +18,12 @@
  */
 
 #include "AP_RCProtocol.h"
-#include "AP_RCProtocol_SRXL.h"
 #include "AP_RCProtocol_SRXL2.h"
 #include <AP_Math/AP_Math.h>
 #include <AP_RCTelemetry/AP_Spektrum_Telem.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
+#include <AP_HAL/utility/sparse-endian.h>
+#include <AP_RCTelemetry/AP_VideoTX.h>
 
 #include "spm_srxl.h"
 
@@ -39,12 +40,17 @@ AP_RCProtocol_SRXL2* AP_RCProtocol_SRXL2::_singleton;
 AP_RCProtocol_SRXL2::AP_RCProtocol_SRXL2(AP_RCProtocol &_frontend) : AP_RCProtocol_Backend(_frontend)
 {
     const uint32_t uniqueID = AP_HAL::micros();
-
+#if !APM_BUILD_TYPE(APM_BUILD_UNKNOWN)
     if (_singleton != nullptr) {
         AP_HAL::panic("Duplicate SRXL2 handler");
     }
 
     _singleton = this;
+#else
+    if (_singleton == nullptr) {
+        _singleton = this;
+    }
+#endif
     // Init the local SRXL device
     if (!srxlInitDevice(SRXL_DEVICE_ID, SRXL_DEVICE_PRIORITY, SRXL_DEVICE_INFO, uniqueID)) {
         AP_HAL::panic("Failed to initialize SRXL2 device");
@@ -55,6 +61,10 @@ AP_RCProtocol_SRXL2::AP_RCProtocol_SRXL2(AP_RCProtocol &_frontend) : AP_RCProtoc
         AP_HAL::panic("Failed to initialize SRXL2 bus");
     }
 
+}
+
+AP_RCProtocol_SRXL2::~AP_RCProtocol_SRXL2() {
+    _singleton = nullptr;
 }
 
 void AP_RCProtocol_SRXL2::_process_byte(uint32_t timestamp_us, uint8_t byte)
@@ -149,29 +159,50 @@ void AP_RCProtocol_SRXL2::update(void)
     }
 }
 
-void AP_RCProtocol_SRXL2::capture_scaled_input(const uint16_t *values, bool in_failsafe, int16_t new_rssi)
+void AP_RCProtocol_SRXL2::capture_scaled_input(const uint8_t *values_p, bool in_failsafe, int16_t new_rssi)
 {
     AP_RCProtocol_SRXL2* srxl2 = AP_RCProtocol_SRXL2::get_singleton();
 
     if (srxl2 != nullptr) {
-        srxl2->_capture_scaled_input(values, in_failsafe, new_rssi);
+        srxl2->_capture_scaled_input(values_p, in_failsafe, new_rssi);
     }
 }
 
 // capture SRXL2 encoded values
-void AP_RCProtocol_SRXL2::_capture_scaled_input(const uint16_t *values, bool in_failsafe, int16_t new_rssi)
+void AP_RCProtocol_SRXL2::_capture_scaled_input(const uint8_t *values_p, bool in_failsafe, int16_t new_rssi)
 {
     _in_failsafe = in_failsafe;
     // AP rssi: -1 for unknown, 0 for no link, 255 for maximum link
     // SRXL2 rssi: -ve rssi in dBM, +ve rssi in percentage
     if (new_rssi >= 0) {
         _new_rssi = new_rssi * 255 / 100;
-    } else {
-        // pretty much a guess
-        _new_rssi = 255 - 255 * (-20 - new_rssi) / (-20 - 85);
     }
 
     for (uint8_t i = 0; i < MAX_CHANNELS; i++) {
+        /*
+         * Store the decoded channel into the R/C input buffer, taking into
+         * account the different ideas about channel assignement that we have.
+         *
+         * Specifically, the first four channels in rc_channel_data are roll, pitch, thrust, yaw,
+         * but the first four channels from the DSM receiver are thrust, roll, pitch, yaw.
+         */
+        uint8_t channel = i;
+        switch (channel) {
+        case 0:
+            channel = 2;
+            break;
+
+        case 1:
+            channel = 0;
+            break;
+
+        case 2:
+            channel = 1;
+            break;
+
+        default:
+            break;
+        }
         /*
          * Each channel data value is sent as an unsigned 16-bit value from 0 to 65532 (0xFFFC)
          * with 32768 (0x8000) representing "Servo Center". The channel value must be bit-shifted
@@ -179,7 +210,8 @@ void AP_RCProtocol_SRXL2::_capture_scaled_input(const uint16_t *values, bool in_
          *
          * So here we scale to DSMX-2048 and then use our regular Spektrum conversion.
          */
-        _channels[i] = ((((int)(values[i] >> 5) - 1024) * 1000) / 1700) + 1500;
+        const uint16_t v = le16toh_ptr(&values_p[i*2]);
+        _channels[channel] = ((int32_t)(v >> 5) * 1194) / 2048 + 903;
     }
 }
 
@@ -209,15 +241,70 @@ void AP_RCProtocol_SRXL2::send_on_uart(uint8_t* pBuffer, uint8_t length)
     }
 }
 
+// configure the video transmitter, the input values are Spektrum-oriented
+void AP_RCProtocol_SRXL2::configure_vtx(uint8_t band, uint8_t channel, uint8_t power, uint8_t pitmode)
+{
+    AP_VideoTX& vtx = AP::vtx();
+    // VTX Band (0 = Fatshark, 1 = Raceband, 2 = E, 3 = B, 4 = A)
+    // map to TBS band A, B, E, Race, Airwave, LoRace
+    switch (band) {
+    case VTX_BAND_FATSHARK:
+        vtx.set_configured_band(AP_VideoTX::VideoBand::FATSHARK);
+        break;
+    case VTX_BAND_RACEBAND:
+        vtx.set_configured_band(AP_VideoTX::VideoBand::RACEBAND);
+        break;
+    case VTX_BAND_E_BAND:
+        vtx.set_configured_band(AP_VideoTX::VideoBand::BAND_E);
+        break;
+    case VTX_BAND_B_BAND:
+        vtx.set_configured_band(AP_VideoTX::VideoBand::BAND_B);
+        break;
+    case VTX_BAND_A_BAND:
+        vtx.set_configured_band(AP_VideoTX::VideoBand::BAND_A);
+        break;
+    default:
+        break;
+    }
+    // VTX Channel (0-7)
+    vtx.set_configured_channel(channel);
+    if (pitmode) {
+        vtx.set_configured_options(vtx.get_options() | uint8_t(AP_VideoTX::VideoOptions::VTX_PITMODE));
+    } else {
+        vtx.set_configured_options(vtx.get_options() & ~uint8_t(AP_VideoTX::VideoOptions::VTX_PITMODE));
+    }
+
+    switch (power) {
+    case VTX_POWER_1MW_14MW:
+    case VTX_POWER_15MW_25MW:
+        vtx.set_configured_power_mw(25);
+        break;
+    case VTX_POWER_26MW_99MW:
+    case VTX_POWER_100MW_299MW:
+        vtx.set_configured_power_mw(100);
+        break;
+    case VTX_POWER_300MW_600MW:
+        vtx.set_configured_power_mw(400);
+        break;
+    case VTX_POWER_601_PLUS:
+        vtx.set_configured_power_mw(800);
+        break;
+    default:
+        break;
+    }
+}
+
 // send data to the uart
 void AP_RCProtocol_SRXL2::_send_on_uart(uint8_t* pBuffer, uint8_t length)
 {
-    if (have_UART()) {
+    AP_HAL::UARTDriver* uart = get_available_UART();
+
+    if (uart != nullptr && uart->is_initialized()) {
         // check that we haven't been too slow in responding to the new UART data. If we respond too late then we will
         // corrupt the next incoming control frame. incoming packets at max 800bits @91Hz @115k baud gives total budget of 11ms 
         // per packet of which we need 7ms to receive a packet. outgoing packets are 220 bits which require 2ms to send
         // leaving at most 2ms of delay that can be tolerated
-        uint64_t tend = get_UART()->receive_time_constraint_us(1);
+        uint64_t tend = uart->receive_time_constraint_us(1);
         uint64_t now = AP_HAL::micros64();
         uint64_t tdelay = now - tend;
         if (tdelay > 2000) {
@@ -229,7 +316,7 @@ void AP_RCProtocol_SRXL2::_send_on_uart(uint8_t* pBuffer, uint8_t length)
             debug("0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x: %s",
                 pBuffer[0], pBuffer[1], pBuffer[2], pBuffer[3], pBuffer[4], pBuffer[5], pBuffer[6], pBuffer[7], pBuffer[8], pBuffer[9], &pBuffer[7]);
         }
-        get_UART()->write(pBuffer, length);
+        uart->write(pBuffer, length);
     }
 }
 
@@ -246,10 +333,11 @@ void AP_RCProtocol_SRXL2::change_baud_rate(uint32_t baudrate)
 // change the uart baud rate
 void AP_RCProtocol_SRXL2::_change_baud_rate(uint32_t baudrate)
 {
-    if (have_UART()) {
-        get_UART()->begin(baudrate);
-        get_UART()->set_flow_control(AP_HAL::UARTDriver::FLOW_CONTROL_DISABLE);
-        get_UART()->set_unbuffered_writes(true);
+    AP_HAL::UARTDriver* uart = get_available_UART();
+    if (uart != nullptr) {
+        uart->begin(baudrate);
+        uart->set_flow_control(AP_HAL::UARTDriver::FLOW_CONTROL_DISABLE);
+        uart->set_unbuffered_writes(true);
     }
 }
 
@@ -292,9 +380,9 @@ void srxlFillTelemetry(SrxlTelemetryData* pTelemetryData)
 void srxlReceivedChannelData(SrxlChannelData* pChannelData, bool isFailsafe)
 {
     if (isFailsafe) {
-        AP_RCProtocol_SRXL2::capture_scaled_input(pChannelData->values, true, pChannelData->rssi);
+        AP_RCProtocol_SRXL2::capture_scaled_input((const uint8_t *)pChannelData->values, true, pChannelData->rssi);
     } else {
-        AP_RCProtocol_SRXL2::capture_scaled_input(srxlChData.values, false, srxlChData.rssi);
+        AP_RCProtocol_SRXL2::capture_scaled_input((const uint8_t *)srxlChData.values, false, srxlChData.rssi);
     }
 }
 
@@ -308,4 +396,5 @@ bool srxlOnBind(SrxlFullID device, SrxlBindData info)
 // User-provided callback routine to handle reception of a VTX control packet.
 void srxlOnVtx(SrxlVtxData* pVtxData)
 {
+    AP_RCProtocol_SRXL2::configure_vtx(pVtxData->band, pVtxData->channel, pVtxData->power, pVtxData->pit);
 }
