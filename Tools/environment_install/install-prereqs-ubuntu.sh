@@ -1,7 +1,7 @@
 #!/bin/bash
 echo "---------- $0 start ----------"
-set -e
-set -x
+#set -e
+#set -x
 
 OPT="/opt"
 BASE_PKGS="build-essential ccache g++ gawk git make wget"
