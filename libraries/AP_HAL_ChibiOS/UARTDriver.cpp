@@ -38,7 +38,7 @@ using namespace ChibiOS;
 extern ChibiOS::UARTDriver uart_io;
 #endif
 
-const UARTDriver::SerialDef UARTDriver::_serial_tab[] = { HAL_UART_DEVICE_LIST };
+const UARTDriver::SerialDef UARTDriver::_serial_tab[] = { HAL_UART_DEVICE_LIST }; // HAL_UART_DEVICE_LIST 
 
 // handle for UART handling thread
 thread_t *UARTDriver::uart_thread_ctx;
