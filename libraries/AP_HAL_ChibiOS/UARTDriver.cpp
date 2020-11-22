@@ -19,11 +19,13 @@
 #if CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS && !defined(HAL_NO_UARTDRIVER)
 #include "UARTDriver.h"
 #include "GPIO.h"
+// #include "../modules/ChibiOS/os/hal/include/hal.h"
 #include <usbcfg.h>
 #include "shared_dma.h"
 #include <AP_Math/AP_Math.h>
 #include "Scheduler.h"
-#include "hwdef/common/stm32_util.h"
+#include "hwdef/common/stm32_util.h"  
+// #include "../modules/ChibiOS/os/hal/boards/ArduPilot_H743/hwdef.h" 
 
 extern const AP_HAL::HAL& hal;
 
