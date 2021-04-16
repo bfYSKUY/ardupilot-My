@@ -330,7 +330,7 @@ void GCS_MAVLINK::send_rangefinder() const
             s->voltage_mv() * 0.001f);
 }
 
-void GCS_MAVLINK::send_proximity() const
+void GCS_MAVLINK::send_proximity() const //向地面站发送距离探测数据
 {
     AP_Proximity *proximity = AP_Proximity::get_singleton();
     if (proximity == nullptr) {

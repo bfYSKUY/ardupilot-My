@@ -106,7 +106,7 @@ void AC_Avoid::adjust_velocity(float kP, float accel_cmss, Vector2f &desired_vel
 }
 
 // convenience function to accept Vector3f.  Only x and y are adjusted
-void AC_Avoid::adjust_velocity(float kP, float accel_cmss, Vector3f &desired_vel_cms, float dt)
+void AC_Avoid::adjust_velocity(float kP, float accel_cmss, Vector3f &desired_vel_cms, float dt)  //调节速度大小
 {
     Vector2f des_vel_xy(desired_vel_cms.x, desired_vel_cms.y);
     adjust_velocity(kP, accel_cmss, des_vel_xy, dt);
@@ -119,7 +119,7 @@ void AC_Avoid::adjust_velocity(float kP, float accel_cmss, Vector3f &desired_vel
 // heading is in radians
 // speed is in m/s
 // kP should be zero for linear response, non-zero for non-linear response
-void AC_Avoid::adjust_speed(float kP, float accel, float heading, float &speed, float dt)
+void AC_Avoid::adjust_speed(float kP, float accel, float heading, float &speed, float dt)  //调节速度方向
 {
     // convert heading and speed into velocity vector
     Vector2f vel_xy;

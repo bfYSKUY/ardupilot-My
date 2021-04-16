@@ -4,8 +4,8 @@
 #if ADSB_ENABLED == ENABLED
 void Copter::avoidance_adsb_update(void)
 {
-    adsb.update();
-    avoidance_adsb.update();
+    adsb.update(); //周期性地处理飞机超时和触发碰撞检测
+    avoidance_adsb.update(); //在此处进行无人机状态更新--因要避障，需调节自身状态，返回“MAV_COLLISION_ACTION”的值
 }
 
 #include <stdio.h>

@@ -152,7 +152,7 @@ void Copter::init_ardupilot()
 #endif
 
 #if AC_OAPATHPLANNER_ENABLED == ENABLED
-    g2.oa.init();
+    g2.oa.init();  //在这里进行避障初始化
 #endif
 
     attitude_control->parameter_sanity_check();

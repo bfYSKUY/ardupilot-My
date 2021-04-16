@@ -9,7 +9,7 @@
 #include "AP_OADatabase.h"
 
 /*
- * This class provides path planning around fence, stay-out zones and moving obstacles
+ * This class provides path planning around fence, stay-out zones and moving obstacles //围着围栏、隔离区和移动障碍物
  */
 class AP_OAPathPlanner {
 
@@ -59,6 +59,7 @@ public:
 private:
 
     // avoidance thread that continually updates the avoidance_result structure based on avoidance_request
+    // 回避线程，根据回避请求不断更新回避结果结构
     void avoidance_thread();
     bool start_thread();
 

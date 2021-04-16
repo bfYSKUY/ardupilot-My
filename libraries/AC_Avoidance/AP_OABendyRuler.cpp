@@ -19,9 +19,9 @@
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_Logger/AP_Logger.h>
 
-const int16_t OA_BENDYRULER_BEARING_INC = 5;            // check every 5 degrees around vehicle
-const float OA_BENDYRULER_LOOKAHEAD_STEP2_RATIO = 1.0f; // step2's lookahead length as a ratio of step1's lookahead length
-const float OA_BENDYRULER_LOOKAHEAD_STEP2_MIN = 2.0f;   // step2 checks at least this many meters past step1's location
+const int16_t OA_BENDYRULER_BEARING_INC = 5;            // check every 5 degrees around vehicle  //每5度检查
+const float OA_BENDYRULER_LOOKAHEAD_STEP2_RATIO = 1.0f; // step2's lookahead length as a ratio of step1's lookahead length //step2的前瞻长度，作为step1的前瞻长度的比率
+const float OA_BENDYRULER_LOOKAHEAD_STEP2_MIN = 2.0f;   // step2 checks at least this many meters past step1's location //第二步检查至少超过第一步位置这么多米
 const float OA_BENDYRULER_LOOKAHEAD_PAST_DEST = 2.0f;   // lookahead length will be at least this many meters past the destination
 const float OA_BENDYRULER_LOW_SPEED_SQUARED = (0.2f * 0.2f);    // when ground course is below this speed squared, vehicle's heading will be used
 
@@ -33,20 +33,21 @@ bool AP_OABendyRuler::update(const Location& current_loc, const Location& destin
     origin_new = current_loc;
 
     // calculate bearing and distance to final destination
-    const float bearing_to_dest = current_loc.get_bearing_to(destination) * 0.01f;
-    const float distance_to_dest = current_loc.get_distance(destination);
+    const float bearing_to_dest = current_loc.get_bearing_to(destination) * 0.01f;  //获取到当前点位的无人机朝向
+    const float distance_to_dest = current_loc.get_distance(destination);           //获取当前点位到目标位置的距离
 
     // lookahead distance is adjusted dynamically based on avoidance results
-    _current_lookahead = constrain_float(_current_lookahead, _lookahead * 0.5f, _lookahead);
+    _current_lookahead = constrain_float(_current_lookahead, _lookahead * 0.5f, _lookahead);  //更改朝向
 
     // calculate lookahead dist and time for step1.  distance can be slightly longer than
-    // the distance to the destination to allow room to dodge after reaching the destination
-    const float lookahead_step1_dist = MIN(_current_lookahead, distance_to_dest + OA_BENDYRULER_LOOKAHEAD_PAST_DEST);
+    // the distance to the destination to allow room to dodge after reaching the destination  
+    // 计算步骤1的先行距离和时间。距离可以比到达目的地的距离稍长，以便在到达目的地后有躲避的空间
+    const float lookahead_step1_dist = MIN(_current_lookahead, distance_to_dest + OA_BENDYRULER_LOOKAHEAD_PAST_DEST);  //计算步骤1的距离
 
     // calculate lookahead dist for step2
-    const float lookahead_step2_dist = _current_lookahead * OA_BENDYRULER_LOOKAHEAD_STEP2_RATIO;
+    const float lookahead_step2_dist = _current_lookahead * OA_BENDYRULER_LOOKAHEAD_STEP2_RATIO;   //计算步骤2的距离
 
-    // get ground course
+    // get ground course   //获取地面航线，航向
     float ground_course_deg;
     if (ground_speed_vec.length_squared() < OA_BENDYRULER_LOW_SPEED_SQUARED) {
         // with zero ground speed use vehicle's heading
@@ -60,29 +61,29 @@ bool AP_OABendyRuler::update(const Location& current_loc, const Location& destin
 
     // search in OA_BENDYRULER_BEARING_INC degree increments around the vehicle alternating left
     // and right. For each direction check if vehicle would avoid all obstacles
-    float best_bearing = bearing_to_dest;
+    float best_bearing = bearing_to_dest;  //当前朝向
     bool have_best_bearing = false;
     float best_margin = -FLT_MAX;
     float best_margin_bearing = best_bearing;
 
-    for (uint8_t i = 0; i <= (170 / OA_BENDYRULER_BEARING_INC); i++) {
+    for (uint8_t i = 0; i <= (170 / OA_BENDYRULER_BEARING_INC); i++) {  //计算朝向个数   //左右对称尝试
         for (uint8_t bdir = 0; bdir <= 1; bdir++) {
             // skip duplicate check of bearing straight towards destination
             if ((i==0) && (bdir > 0)) {
                 continue;
             }
             // bearing that we are probing
-            const float bearing_delta = i * OA_BENDYRULER_BEARING_INC * (bdir == 0 ? -1.0f : 1.0f);
-            const float bearing_test = wrap_180(bearing_to_dest + bearing_delta);
+            const float bearing_delta = i * OA_BENDYRULER_BEARING_INC * (bdir == 0 ? -1.0f : 1.0f);  //左右对称尝试
+            const float bearing_test = wrap_180(bearing_to_dest + bearing_delta);  //得到测试的朝向
 
             // ToDo: add effective groundspeed calculations using airspeed
             // ToDo: add prediction of vehicle's position change as part of turn to desired heading
 
             // test location is projected from current location at test bearing
             Location test_loc = current_loc;
-            test_loc.offset_bearing(bearing_test, lookahead_step1_dist);
+            test_loc.offset_bearing(bearing_test, lookahead_step1_dist); //计算基于第一步距离和测试朝向的下一点位置
 
-            // calculate margin from fence for this scenario
+            // calculate margin from fence for this scenario   //在该情况下，计算到围栏（障碍物）边缘的距离
             float margin = calc_avoidance_margin(current_loc, test_loc);
             if (margin > best_margin) {
                 best_margin_bearing = bearing_test;
@@ -126,7 +127,7 @@ bool AP_OABendyRuler::update(const Location& current_loc, const Location& destin
         }
     }
 
-    float chosen_bearing;
+    float chosen_bearing;  //选择最优的方向
     if (have_best_bearing) {
         // none of the directions tested were OK for 2-step checks. Choose the direction
         // that was best for the first step

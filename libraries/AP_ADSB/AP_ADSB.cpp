@@ -230,7 +230,7 @@ bool AP_ADSB::is_valid_callsign(uint16_t octal)
 }
 
 /*
- * periodic update to handle vehicle timeouts and trigger collision detection
+ * periodic update to handle vehicle timeouts and trigger collision detection  //周期性地处理飞机超时和触发碰撞检测
  */
 void AP_ADSB::update(void)
 {

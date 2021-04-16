@@ -515,16 +515,16 @@ void AP_Avoidance::update()
     }
 
     if (_adsb.enabled()) {
-        get_adsb_samples();
+        get_adsb_samples();  //添加碰撞模型
     }
 
-    check_for_threats();
+    check_for_threats();  //检查危险
 
     // notify GCS of most serious thread
-    handle_threat_gcs_notify(most_serious_threat());
+    handle_threat_gcs_notify(most_serious_threat());  //告知地面站
 
     // avoid object (if necessary)
-    handle_avoidance_local(most_serious_threat());
+    handle_avoidance_local(most_serious_threat());  //避障处理
 }
 
 void AP_Avoidance::handle_avoidance_local(AP_Avoidance::Obstacle *threat)
@@ -564,7 +564,7 @@ void AP_Avoidance::handle_avoidance_local(AP_Avoidance::Obstacle *threat)
 
     // handle ongoing threat by calling vehicle specific handler
     if ((threat != nullptr) && (_threat_level == MAV_COLLISION_THREAT_LEVEL_HIGH) && (action > MAV_COLLISION_ACTION_REPORT)) {
-        _latest_action = handle_avoidance(threat, action);
+        _latest_action = handle_avoidance(threat, action); //避障，调节飞机的应对模式，接下来进行路径调节
     }
 }
 

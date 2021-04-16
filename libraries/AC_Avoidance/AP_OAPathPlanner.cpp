@@ -24,7 +24,7 @@
 extern const AP_HAL::HAL &hal;
 
 // parameter defaults
-const float OA_LOOKAHEAD_DEFAULT = 15;
+const float OA_LOOKAHEAD_DEFAULT = 3;  // 默认15m
 const float OA_MARGIN_MAX_DEFAULT = 5;
 
 const int16_t OA_TIMEOUT_MS = 2000;             // avoidance results over 2 seconds old are ignored
@@ -36,7 +36,7 @@ const AP_Param::GroupInfo AP_OAPathPlanner::var_info[] = {
     // @Description: Enabled/disable path planning around obstacles
     // @Values: 0:Disabled,1:BendyRuler,2:Dijkstra
     // @User: Standard
-    AP_GROUPINFO_FLAGS("TYPE", 1,  AP_OAPathPlanner, _type, OA_PATHPLAN_DISABLED, AP_PARAM_FLAG_ENABLE),
+    AP_GROUPINFO_FLAGS("TYPE", 1,  AP_OAPathPlanner, _type, OA_PATHPLAN_DISABLED, AP_PARAM_FLAG_ENABLE),  //默认禁用
 
     // @Param: LOOKAHEAD
     // @DisplayName: Object Avoidance look ahead distance maximum
@@ -45,7 +45,7 @@ const AP_Param::GroupInfo AP_OAPathPlanner::var_info[] = {
     // @Range: 1 100
     // @Increment: 1
     // @User: Standard
-    AP_GROUPINFO("LOOKAHEAD", 2, AP_OAPathPlanner, _lookahead, OA_LOOKAHEAD_DEFAULT),
+    AP_GROUPINFO("LOOKAHEAD", 2, AP_OAPathPlanner, _lookahead, OA_LOOKAHEAD_DEFAULT), // 默认前方避障距离 
 
     // @Param: MARGIN_MAX
     // @DisplayName: Object Avoidance wide margin distance
@@ -54,7 +54,7 @@ const AP_Param::GroupInfo AP_OAPathPlanner::var_info[] = {
     // @Range: 0.1 100
     // @Increment: 1
     // @User: Standard
-    AP_GROUPINFO("MARGIN_MAX", 3, AP_OAPathPlanner, _margin_max, OA_MARGIN_MAX_DEFAULT),
+    AP_GROUPINFO("MARGIN_MAX", 3, AP_OAPathPlanner, _margin_max, OA_MARGIN_MAX_DEFAULT),  //避障目标宽边距
 
 #if !HAL_MINIMIZE_FEATURES
     // @Group: DB_
@@ -74,7 +74,7 @@ AP_OAPathPlanner::AP_OAPathPlanner()
 }
 
 // perform any required initialisation
-void AP_OAPathPlanner::init()
+void AP_OAPathPlanner::init()    //在system.cpp中调用
 {
     // run background task looking for best alternative destination
     switch (_type) {
@@ -132,7 +132,7 @@ bool AP_OAPathPlanner::start_thread()
         return false;
     }
 
-    // create the avoidance thread as low priority. It should soak
+    // create the avoidance thread as low priority. It should soak   //创建低优先级的避障线程
     // up spare CPU cycles to fill in the avoidance_result structure based
     // on requests in avoidance_request
     if (!hal.scheduler->thread_create(FUNCTOR_BIND_MEMBER(&AP_OAPathPlanner::avoidance_thread, void),
@@ -144,7 +144,7 @@ bool AP_OAPathPlanner::start_thread()
     return true;
 }
 
-// provides an alternative target location if path planning around obstacles is required
+// provides an alternative target location if path planning around obstacles is required  //航点之中调用
 // returns true and updates result_loc with an intermediate location
 AP_OAPathPlanner::OA_RetState AP_OAPathPlanner::mission_avoidance(const Location &current_loc,
                                          const Location &origin,
@@ -191,7 +191,7 @@ AP_OAPathPlanner::OA_RetState AP_OAPathPlanner::mission_avoidance(const Location
 }
 
 // avoidance thread that continually updates the avoidance_result structure based on avoidance_request
-void AP_OAPathPlanner::avoidance_thread()
+void AP_OAPathPlanner::avoidance_thread()  //避障线程
 {
     while (true) {
 #if !HAL_MINIMIZE_FEATURES
