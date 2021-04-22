@@ -6,8 +6,8 @@
 #define COMPASS_CAL_NUM_ELLIPSOID_PARAMS    9
 #define COMPASS_CAL_NUM_SAMPLES             300     // number of samples required before fitting begins
 
-#define COMPASS_MIN_SCALE_FACTOR 0.85
-#define COMPASS_MAX_SCALE_FACTOR 1.4
+#define COMPASS_MAX_SCALE_FACTOR 1.5
+#define COMPASS_MIN_SCALE_FACTOR (1.0/COMPASS_MAX_SCALE_FACTOR)
 
 class CompassCalibrator {
 public:
@@ -114,7 +114,7 @@ private:
     // compact class for approximate attitude, to save memory
     class AttitudeSample {
     public:
-        Matrix3f get_rotmat();
+        Matrix3f get_rotmat() const;
         void set_from_ahrs();
     private:
         int8_t roll;
@@ -145,7 +145,7 @@ private:
     bool accept_sample(const CompassSample &sample, uint16_t skip_index = UINT16_MAX);
 
     // returns true if fit is acceptable
-    bool fit_acceptable();
+    bool fit_acceptable() const;
 
     // clear sample buffer and reset offsets and scaling to their defaults
     void reset_state();

@@ -5,7 +5,7 @@
 # dpkg -l | grep modemmanager
 # sim_vehicle.py --map --console # in the starting directory should start a Copter simulation
 # sim_vehicle.py --debug --gdb
-# sim_vehicle.py --valgrind
+# sim_vehicle.py --debug --valgrind
 # time (cd /vagrant && ./waf configure --board=fmuv2 && ./waf build --target=bin/ardusub) # ~9 minutes
 # time (cd /vagrant && ./waf configure --board=fmuv3 && ./waf build --target=bin/ardusub) # ~ minutes (after building fmuv2)
 # time (cd /vagrant && ./waf configure --board=navio2 && ./waf build --target=bin/arduplane)
@@ -120,6 +120,16 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     end
   end
 
+  # 18.04 LTS
+  config.vm.define "bionic64-desktop", primary: true do |bionic64|
+    bionic64.vm.box = "ubuntu/bionic64"
+    bionic64.vm.provision :shell, path: "Tools/vagrant/initvagrant-desktop.sh"
+    bionic64.vm.provider "virtualbox" do |vb|
+      vb.name = "ArduPilot (bionic64-desktop)"
+      vb.gui = true
+    end
+  end
+
   # 18.10
   config.vm.define "cosmic32", autostart: false do |cosmic32|
     cosmic32.vm.box = "ubuntu/cosmic32"
@@ -165,6 +175,27 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       vb.name = "ArduPilot (focal)"
     end
     focal.vm.boot_timeout = 1200
+  end
+
+  # 20.04 LTS
+  config.vm.define "focal-desktop", autostart: false do |focal|
+    focal.vm.box = "ubuntu/focal64"
+    focal.vm.provision :shell, path: "Tools/vagrant/initvagrant-desktop.sh"
+    focal.vm.provider "virtualbox" do |vb|
+      vb.name = "ArduPilot (focal-desktop)"
+      vb.gui = true
+    end
+    focal.vm.boot_timeout = 1500
+  end
+
+  # 20.10
+  config.vm.define "groovy", autostart: false do |groovy|
+    groovy.vm.box = "ubuntu/groovy64"
+    groovy.vm.provision :shell, path: "Tools/vagrant/initvagrant.sh"
+    groovy.vm.provider "virtualbox" do |vb|
+      vb.name = "ArduPilot (groovy)"
+    end
+    groovy.vm.boot_timeout = 1200
   end
 
 end

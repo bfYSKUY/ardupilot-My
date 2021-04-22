@@ -19,7 +19,7 @@
 
 #include "AP_OSD.h"
 
-#if OSD_ENABLED
+#if OSD_ENABLED || OSD_PARAM_ENABLED
 
 #include "AP_OSD_MAX7456.h"
 #ifdef WITH_SITL_OSD
@@ -33,17 +33,19 @@
 #include <AP_BattMonitor/AP_BattMonitor.h>
 #include <utility>
 #include <AP_Notify/AP_Notify.h>
+#include <AP_Terrain/AP_Terrain.h>
 
 const AP_Param::GroupInfo AP_OSD::var_info[] = {
 
     // @Param: _TYPE
     // @DisplayName: OSD type
-    // @Description: OSD type
-    // @Values: 0:None,1:MAX7456,2:SITL,3:MSP
+    // @Description: OSD type. TXONLY makes the OSD parameter selection available to other modules even if there is no native OSD support on the board, for instance CRSF.
+    // @Values: 0:None,1:MAX7456,2:SITL,3:MSP,4:TXONLY
     // @User: Standard
     // @RebootRequired: True
     AP_GROUPINFO_FLAGS("_TYPE", 1, AP_OSD, osd_type, 0, AP_PARAM_FLAG_ENABLE),
 
+#if OSD_ENABLED
     // @Param: _CHAN
     // @DisplayName: Screen switch transmitter channel
     // @Description: This sets the channel used to switch different OSD screens.
@@ -167,7 +169,40 @@ const AP_Param::GroupInfo AP_OSD::var_info[] = {
     // @Range: 0 3000
     // @User: Advanced
     AP_GROUPINFO("_BTN_DELAY", 20, AP_OSD, button_delay_ms, 300),
+#endif
+#if AP_TERRAIN_AVAILABLE
+    // @Param: _W_TERR
+    // @DisplayName: Terrain warn level
+    // @Description: Set level below which HGT_TER item will flash. -1 disables
+    // @Range: 1 3000
+    // @Units: m
+    // @User: Standard
+    AP_GROUPINFO("_W_TERR", 23, AP_OSD, warn_terr, -1),
+#endif
 
+    // @Param: _W_AVGCELLV
+    // @DisplayName: AVGCELLV warn level
+    // @Description: Set level at which AVGCELLV item will flash
+    // @Range: 0 100
+    // @User: Standard
+    AP_GROUPINFO("_W_AVGCELLV", 24, AP_OSD, warn_avgcellvolt, 3.6f),
+
+   // @Param: _CELL_COUNT
+    // @DisplayName: Battery cell count
+    // @Description: Used for average cell voltage display. -1 disables, 0 uses cell count autodetection for well charged LIPO/LIION batteries at connection, other values manually select cell count used.
+    // @Increment: 1
+    // @User: Advanced
+    AP_GROUPINFO("_CELL_COUNT", 25, AP_OSD, cell_count, -1),
+
+    // @Param: _W_RESTVOLT
+    // @DisplayName: RESTVOLT warn level
+    // @Description: Set level at which RESTVOLT item will flash
+    // @Range: 0 100
+    // @User: Standard
+    AP_GROUPINFO("_W_RESTVOLT", 26, AP_OSD, warn_restvolt, 10.0f),
+
+#endif //osd enabled
+#if OSD_PARAM_ENABLED
     // @Group: 5_
     // @Path: AP_OSD_ParamScreen.cpp
     AP_SUBGROUPINFO(param_screen[0], "5_", 21, AP_OSD, AP_OSD_ParamScreen),
@@ -190,16 +225,18 @@ AP_OSD::AP_OSD()
         AP_HAL::panic("AP_OSD must be singleton");
     }
     AP_Param::setup_object_defaults(this, var_info);
+#if OSD_ENABLED
     // default first screen enabled
     screen[0].enabled = 1;
+    previous_pwm_screen = -1;
+#endif
 #ifdef WITH_SITL_OSD
-    osd_type.set_default(2);
+    osd_type.set_default(OSD_SITL);
 #endif
 
 #ifdef HAL_OSD_TYPE_DEFAULT
     osd_type.set_default(HAL_OSD_TYPE_DEFAULT);
 #endif
-    previous_pwm_screen = -1;
     _singleton = this;
 }
 
@@ -207,6 +244,7 @@ void AP_OSD::init()
 {
     switch ((enum osd_types)osd_type.get()) {
     case OSD_NONE:
+    case OSD_TXONLY:
     default:
         break;
 
@@ -244,12 +282,15 @@ void AP_OSD::init()
         break;
     }
     }
+#if OSD_ENABLED
     if (backend != nullptr && (enum osd_types)osd_type.get() != OSD_MSP) {
         // create thread as higher priority than IO for all backends but MSP which has its own
         hal.scheduler->thread_create(FUNCTOR_BIND_MEMBER(&AP_OSD::osd_thread, void), "OSD", 1024, AP_HAL::Scheduler::PRIORITY_IO, 1);
     }
+#endif
 }
 
+#if OSD_ENABLED
 void AP_OSD::osd_thread()
 {
     while (true) {
@@ -381,7 +422,7 @@ void AP_OSD::update_current_screen()
     //select screen based on pwm ranges specified
     case PWM_RANGE:
         for (int i=0; i<AP_OSD_NUM_SCREENS; i++) {
-            if (get_screen(i).enabled && get_screen(i).channel_min <= channel_value && get_screen(i).channel_max > channel_value && previous_pwm_screen != i) {
+            if (get_screen(i).enabled && get_screen(i).channel_min <= channel_value && get_screen(i).channel_max > channel_value) {
                 current_screen = previous_pwm_screen = i;
                 break;
             }
@@ -424,6 +465,7 @@ void AP_OSD::set_nav_info(NavInfo &navinfo)
     // do this without a lock for now
     nav_info = navinfo;
 }
+#endif // OSD_ENABLED
 
 // handle OSD parameter configuration
 void AP_OSD::handle_msg(const mavlink_message_t &msg, const GCS_MAVLINK& link)
@@ -475,4 +517,4 @@ AP_OSD *AP::osd() {
     return AP_OSD::get_singleton();
 }
 
-#endif // OSD_ENABLED
+#endif // OSD_ENABLED || OSD_PARAM_ENABLED

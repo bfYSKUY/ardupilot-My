@@ -166,17 +166,26 @@ void EKFGSF_yaw::fuseVelData(const Vector2f &vel, const float velAcc)
 
             if (!state_update_failed) {
                 // Calculate weighting for each model assuming a normal error distribution
+                const float min_weight = 1e-5f;
+                uint8_t n_clips = 0;
                 for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx ++) {
-                    newWeight[mdl_idx]= fmaxf(gaussianDensity(mdl_idx) * GSF.weights[mdl_idx], 0.0f);
+                    newWeight[mdl_idx] = gaussianDensity(mdl_idx) * GSF.weights[mdl_idx];
+                    if (newWeight[mdl_idx] < min_weight) {
+                        n_clips++;
+                        newWeight[mdl_idx] = min_weight;
+                    }
                     total_w += newWeight[mdl_idx];
                 }
 
                 // Normalise the sum of weights to unity
-                if (vel_fuse_running && is_positive(total_w)) {
+                // Reset the filters if all weights have underflowed due to excessive innovation variances
+                if (vel_fuse_running && n_clips < N_MODELS_EKFGSF) {
                     float total_w_inv = 1.0f / total_w;
                     for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx ++) {
                         GSF.weights[mdl_idx]  = newWeight[mdl_idx] * total_w_inv;
                     }
+                } else {
+                    resetEKFGSF();
                 }
             }
         }
@@ -577,22 +586,6 @@ float EKFGSF_yaw::gaussianDensity(const uint8_t mdl_idx) const
     return normDist;
 }
 
-bool EKFGSF_yaw::getLogData(float &yaw_composite, float &yaw_composite_variance, float yaw[N_MODELS_EKFGSF], float innov_VN[N_MODELS_EKFGSF], float innov_VE[N_MODELS_EKFGSF], float weight[N_MODELS_EKFGSF])
-{
-    if (vel_fuse_running) {
-        yaw_composite = GSF.yaw;
-        yaw_composite_variance = GSF.yaw_variance;
-        for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx++) {
-            yaw[mdl_idx] = EKF[mdl_idx].X[2];
-            innov_VN[mdl_idx] = EKF[mdl_idx].innov[0];
-            innov_VE[mdl_idx] = EKF[mdl_idx].innov[1];
-            weight[mdl_idx] = GSF.weights[mdl_idx];
-        }
-        return true;
-    }
-    return false;
-}
-
 void EKFGSF_yaw::forceSymmetry(const uint8_t mdl_idx)
 {
     float P01 = 0.5f * (EKF[mdl_idx].P[0][1] + EKF[mdl_idx].P[1][0]);
@@ -604,7 +597,7 @@ void EKFGSF_yaw::forceSymmetry(const uint8_t mdl_idx)
 }
 
 // Apply a body frame delta angle to the body to earth frame rotation matrix using a small angle approximation
-Matrix3f EKFGSF_yaw::updateRotMat(const Matrix3f &R, const Vector3f &g)
+Matrix3f EKFGSF_yaw::updateRotMat(const Matrix3f &R, const Vector3f &g) const
 {
     Matrix3f ret = R;
     ret[0][0] += R[0][1] * g[2] - R[0][2] * g[1];
@@ -632,13 +625,25 @@ Matrix3f EKFGSF_yaw::updateRotMat(const Matrix3f &R, const Vector3f &g)
     return ret;
 }
 
-bool EKFGSF_yaw::getYawData(float &yaw, float &yawVariance)
+bool EKFGSF_yaw::getYawData(float &yaw, float &yawVariance) const
 {
     if (!vel_fuse_running) {
         return false;
     }
     yaw = GSF.yaw;
     yawVariance = GSF.yaw_variance;
+    return true;
+}
+
+bool EKFGSF_yaw::getVelInnovLength(float &velInnovLength) const
+{
+    if (!vel_fuse_running) {
+        return false;
+    }
+    velInnovLength = 0.0f;
+    for (uint8_t mdl_idx = 0; mdl_idx < N_MODELS_EKFGSF; mdl_idx ++) {
+        velInnovLength += GSF.weights[mdl_idx] * sqrtf((sq(EKF[mdl_idx].innov[0]) + sq(EKF[mdl_idx].innov[1])));
+    }
     return true;
 }
 

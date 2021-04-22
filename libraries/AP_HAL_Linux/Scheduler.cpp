@@ -255,14 +255,9 @@ void Scheduler::_run_io(void)
 void Scheduler::_run_uarts()
 {
     // process any pending serial bytes
-    hal.uartA->_timer_tick();
-    hal.uartB->_timer_tick();
-    hal.uartC->_timer_tick();
-    hal.uartD->_timer_tick();
-    hal.uartE->_timer_tick();
-    hal.uartF->_timer_tick();
-    hal.uartG->_timer_tick();
-    hal.uartH->_timer_tick();
+    for (uint8_t i=0;i<hal.num_serial; i++) {
+        hal.serial(i)->_timer_tick();
+    }
 }
 
 void Scheduler::_rcin_task()
@@ -297,10 +292,10 @@ void Scheduler::_wait_all_threads()
     }
 }
 
-void Scheduler::system_initialized()
+void Scheduler::set_system_initialized()
 {
     if (_initialized) {
-        AP_HAL::panic("PANIC: scheduler::system_initialized called more than once");
+        AP_HAL::panic("PANIC: scheduler::set_system_initialized called more than once");
     }
 
     _initialized = true;
@@ -353,16 +348,9 @@ void Scheduler::teardown()
     _uart_thread.join();
 }
 
-/*
-  create a new thread
-*/
-bool Scheduler::thread_create(AP_HAL::MemberProc proc, const char *name, uint32_t stack_size, priority_base base, int8_t priority)
+// calculates an integer to be used as the priority for a newly-created thread
+uint8_t Scheduler::calculate_thread_priority(priority_base base, int8_t priority) const
 {
-    Thread *thread = new Thread{(Thread::task_t)proc};
-    if (!thread) {
-        return false;
-    }
-
     uint8_t thread_priority = APM_LINUX_IO_PRIORITY;
     static const struct {
         priority_base base;
@@ -386,6 +374,21 @@ bool Scheduler::thread_create(AP_HAL::MemberProc proc, const char *name, uint32_
             break;
         }
     }
+
+    return thread_priority;
+}
+
+/*
+  create a new thread
+*/
+bool Scheduler::thread_create(AP_HAL::MemberProc proc, const char *name, uint32_t stack_size, priority_base base, int8_t priority)
+{
+    Thread *thread = new Thread{(Thread::task_t)proc};
+    if (!thread) {
+        return false;
+    }
+
+    const uint8_t thread_priority = calculate_thread_priority(base, priority);
 
     // Add 256k to HAL-independent requested stack size
     thread->set_stack_size(256 * 1024 + stack_size);

@@ -29,6 +29,10 @@
 ****************************************/
 #pragma once
 
+#ifndef MATH_CHECK_INDEXES
+#define MATH_CHECK_INDEXES 0
+#endif
+
 #include <cmath>
 #include <AP_Common/AP_Common.h>
 
@@ -133,6 +137,9 @@ struct Vector2
 
     // gets the length of this vector
     float length(void) const;
+
+    // limit vector to a given length. returns true if vector was limited
+    bool limit_length(float max_length);
 
     // normalizes this vector
     void normalize();

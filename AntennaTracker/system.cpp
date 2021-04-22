@@ -92,15 +92,12 @@ void Tracker::init_ardupilot()
         // for some servos)
         prepare_servos();
     }
-
-    // disable safety if requested
-    BoardConfig.init_safety();    
 }
 
 /*
   fetch HOME from EEPROM
 */
-bool Tracker::get_home_eeprom(struct Location &loc)
+bool Tracker::get_home_eeprom(struct Location &loc) const
 {
     // Find out proper location in memory by using the start_byte position + the index
     // --------------------------------------------------------------------------------
@@ -176,6 +173,8 @@ void Tracker::prepare_servos()
 
 void Tracker::set_mode(Mode &newmode, const ModeReason reason)
 {
+    control_mode_reason = reason;
+
     if (mode == &newmode) {
         // don't switch modes if we are already in the correct mode.
         return;

@@ -4,6 +4,8 @@
 #include <AP_Common/AP_FWVersion.h>
 #include <AP_Arming/AP_Arming.h>
 #include <AP_Frsky_Telem/AP_Frsky_Parameters.h>
+#include <AP_Mission/AP_Mission.h>
+#include <AP_OSD/AP_OSD.h>
 
 #define SCHED_TASK(func, rate_hz, max_time_micros) SCHED_TASK_CLASS(AP_Vehicle, &vehicle, func, rate_hz, max_time_micros)
 
@@ -29,7 +31,7 @@ const AP_Param::GroupInfo AP_Vehicle::var_info[] = {
     AP_SUBGROUPINFO(visual_odom, "VISO",  3, AP_Vehicle, AP_VisualOdom),
 #endif
     // @Group: VTX_
-    // @Path: ../AP_RCTelemetry/AP_VideoTX.cpp
+    // @Path: ../AP_VideoTX/AP_VideoTX.cpp
     AP_SUBGROUPINFO(vtx, "VTX_",  4, AP_Vehicle, AP_VideoTX),
 
 #if HAL_MSP_ENABLED
@@ -42,6 +44,18 @@ const AP_Param::GroupInfo AP_Vehicle::var_info[] = {
     // @Group: FRSKY_
     // @Path: ../AP_Frsky_Telem/AP_Frsky_Parameters.cpp
     AP_SUBGROUPINFO(frsky_parameters, "FRSKY_", 6, AP_Vehicle, AP_Frsky_Parameters),
+#endif
+
+#if GENERATOR_ENABLED
+    // @Group: GEN_
+    // @Path: ../AP_Generator/AP_Generator.cpp
+    AP_SUBGROUPINFO(generator, "GEN_", 7, AP_Vehicle, AP_Generator),
+#endif
+
+#if HAL_EXTERNAL_AHRS_ENABLED
+    // @Group: EAHRS
+    // @Path: ../AP_ExternalAHRS/AP_ExternalAHRS.cpp
+    AP_SUBGROUPINFO(externalAHRS, "EAHRS", 8, AP_Vehicle, AP_ExternalAHRS),
 #endif
 
     AP_GROUPEND
@@ -107,9 +121,18 @@ void AP_Vehicle::setup()
     msp.init();
 #endif
 
+#if HAL_EXTERNAL_AHRS_ENABLED
+    // call externalAHRS init before init_ardupilot to allow for external sensors
+    externalAHRS.init();
+#endif
+
     // init_ardupilot is where the vehicle does most of its initialisation.
     init_ardupilot();
     gcs().send_text(MAV_SEVERITY_INFO, "ArduPilot Ready");
+
+#if !APM_BUILD_TYPE(APM_BUILD_Replay)
+    SRV_Channels::init();
+#endif
 
     // gyro FFT needs to be initialized really late
 #if HAL_GYROFFT_ENABLED
@@ -125,10 +148,21 @@ void AP_Vehicle::setup()
     // init library used for visual position estimation
     visual_odom.init();
 #endif
+
     vtx.init();
+
+#if HAL_SMARTAUDIO_ENABLED
+    smartaudio.init();
+#endif
 
 #if AP_PARAM_KEY_DUMP
     AP_Param::show_all(hal.console, true);
+#endif
+
+    send_watchdog_reset_statustext();
+
+#if GENERATOR_ENABLED
+    generator.init();
 #endif
 }
 
@@ -136,6 +170,18 @@ void AP_Vehicle::loop()
 {
     scheduler.loop();
     G_Dt = scheduler.get_loop_period_s();
+
+    if (!done_safety_init) {
+        /*
+          disable safety if requested. This is delayed till after the
+          first loop has run to ensure that all servos have received
+          an update for their initial values. Otherwise we may end up
+          briefly driving a servo to a position out of the configured
+          range which could damage hardware
+        */
+        done_safety_init = true;
+        BoardConfig.init_safety();
+    }
 }
 
 /*
@@ -164,6 +210,12 @@ const AP_Scheduler::Task AP_Vehicle::scheduler_tasks[] = {
     SCHED_TASK(update_dynamic_notch,                   200,    200),
     SCHED_TASK_CLASS(AP_VideoTX,   &vehicle.vtx,            update,                    2, 100),
     SCHED_TASK(send_watchdog_reset_statustext,         0.1,     20),
+#if GENERATOR_ENABLED
+    SCHED_TASK_CLASS(AP_Generator, &vehicle.generator,      update,                   10,  50),
+#endif
+#if OSD_ENABLED
+    SCHED_TASK(publish_osd_info, 1, 10),
+#endif
 };
 
 void AP_Vehicle::get_common_scheduler_tasks(const AP_Scheduler::Task*& tasks, uint8_t& num_tasks)
@@ -206,7 +258,11 @@ void AP_Vehicle::scheduler_delay_callback()
     }
     if (tnow - last_5s > 5000) {
         last_5s = tnow;
-        gcs().send_text(MAV_SEVERITY_INFO, "Initialising ArduPilot");
+        if (AP_BoardConfig::in_config_error()) {
+            gcs().send_text(MAV_SEVERITY_CRITICAL, "Config Error: fix problem then reboot");
+        } else {
+            gcs().send_text(MAV_SEVERITY_INFO, "Initialising ArduPilot");
+        }
     }
 
     logger.EnableWrites(true);
@@ -282,12 +338,45 @@ void AP_Vehicle::reboot(bool hold_in_bootloader)
     // do not process incoming mavlink messages while we delay:
     hal.scheduler->register_delay_callback(nullptr, 5);
 
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+    // need to ensure the ack goes out:
+    hal.serial(0)->flush();
+#endif
+
     // delay to give the ACK a chance to get out, the LEDs to flash,
     // the IO board safety to be forced on, the parameters to flush, ...
     hal.scheduler->delay(200);
 
     hal.scheduler->reboot(hold_in_bootloader);
 }
+
+#if OSD_ENABLED
+void AP_Vehicle::publish_osd_info()
+{
+    AP_Mission *mission = AP::mission();
+    if (mission == nullptr) {
+        return;
+    }
+    AP_OSD *osd = AP::osd();
+    if (osd == nullptr) {
+        return;
+    }
+    AP_OSD::NavInfo nav_info;
+    if(!get_wp_distance_m(nav_info.wp_distance)) {
+        return;
+    }
+    float wp_bearing_deg;
+    if (!get_wp_bearing_deg(wp_bearing_deg)) {
+        return;
+    }
+    nav_info.wp_bearing = (int32_t)wp_bearing_deg * 100; // OSD expects cd
+    if (!get_wp_crosstrack_error_m(nav_info.wp_xtrack_error)) {
+        return;
+    }
+    nav_info.wp_number = mission->get_current_nav_index();
+    osd->set_nav_info(nav_info);
+}
+#endif
 
 AP_Vehicle *AP_Vehicle::_singleton = nullptr;
 

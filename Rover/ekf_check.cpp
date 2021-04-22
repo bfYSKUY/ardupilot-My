@@ -112,11 +112,7 @@ bool Rover::ekf_over_threshold()
         return true;
     }
 
-    if (ekf_position_ok()) {
-        return false;
-    }
-
-    return true;
+    return !ekf_position_ok();
 }
 
 // ekf_position_ok - returns true if the ekf claims it's horizontal absolute position estimate is ok and home position is set
@@ -152,7 +148,6 @@ void Rover::failsafe_ekf_event()
     failsafe.ekf = true;
     AP::logger().Write_Error(LogErrorSubsystem::FAILSAFE_EKFINAV,
                              LogErrorCode::FAILSAFE_OCCURRED);
-    gcs().send_text(MAV_SEVERITY_CRITICAL,"EKF failsafe!");
 
     // does this mode require position?
     if (!control_mode->requires_position()) {
@@ -163,12 +158,16 @@ void Rover::failsafe_ekf_event()
     switch ((enum fs_ekf_action)g.fs_ekf_action.get()) {
         case FS_EKF_DISABLE:
             // do nothing
+            return;
+        case FS_EKF_REPORT_ONLY:
             break;
-        case FS_EFK_HOLD:
+        case FS_EKF_HOLD:
         default:
             set_mode(mode_hold, ModeReason::EKF_FAILSAFE);
             break;
     }
+
+    gcs().send_text(MAV_SEVERITY_CRITICAL,"EKF failsafe");
 }
 
 // failsafe_ekf_off_event - actions to take when EKF failsafe is cleared

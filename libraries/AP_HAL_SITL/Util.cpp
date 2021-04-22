@@ -51,6 +51,7 @@ bool HALSITL::Util::get_system_id_unformatted(uint8_t buf[], uint8_t &len)
             *p = 0;
         }
         len = strnlen(cbuf, len);
+        buf[0] += sitlState->get_instance();
         return true;
     }
 
@@ -58,7 +59,10 @@ bool HALSITL::Util::get_system_id_unformatted(uint8_t buf[], uint8_t &len)
     if (gethostname(cbuf, len) != 0) {
         // use a default name so this always succeeds. Without it we can't
         // implement some features (such as UAVCAN)
-        strncpy(cbuf, "sitl-unknown", len);
+        snprintf(cbuf, len, "sitl-unknown-%d", sitlState->get_instance());
+    } else {
+        // To ensure separate ids for each instance
+        cbuf[0] += sitlState->get_instance();
     }
     len = strnlen(cbuf, len);
     return true;
@@ -131,6 +135,7 @@ void *HALSITL::Util::heap_realloc(void *heap_ptr, void *ptr, size_t new_size)
 
 #endif // ENABLE_HEAP
 
+#if !defined(HAL_BUILD_AP_PERIPH)
 enum AP_HAL::Util::safety_state HALSITL::Util::safety_switch_state(void)
 {
     const SITL::SITL *sitl = AP::sitl();
@@ -146,3 +151,14 @@ void HALSITL::Util::set_cmdline_parameters()
         AP_Param::set_default_by_name(param.name, param.value);
     }
 }
+#endif
+
+/**
+   return commandline arguments, if available
+*/
+void HALSITL::Util::commandline_arguments(uint8_t &argc, char * const *&argv)
+{
+    argc = saved_argc;
+    argv = saved_argv;
+}
+

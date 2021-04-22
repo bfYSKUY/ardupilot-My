@@ -18,9 +18,9 @@ void Plane::Log_Write_Attitude(void)
         // Get them from the quaternion instead:
         quadplane.attitude_control->get_attitude_target_quat().to_euler(targets.x, targets.y, targets.z);
         targets *= degrees(100.0f);
-        logger.Write_AttitudeView(*quadplane.ahrs_view, targets);
+        quadplane.ahrs_view->Write_AttitudeView(targets);
     } else {
-        logger.Write_Attitude(targets);
+        ahrs.Write_Attitude(targets);
     }
     if (quadplane.in_vtol_mode() || quadplane.in_assisted_flight()) {
         // log quadplane PIDs separately from fixed wing PIDs
@@ -37,12 +37,12 @@ void Plane::Log_Write_Attitude(void)
 
 #if AP_AHRS_NAVEKF_AVAILABLE
     AP::ahrs_navekf().Log_Write();
-    logger.Write_AHRS2();
+    ahrs.Write_AHRS2();
 #endif
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     sitl.Log_Write_SIMSTATE();
 #endif
-    logger.Write_POS();
+    ahrs.Write_POS();
 }
 
 // do fast logging for plane
@@ -332,16 +332,24 @@ const struct LogStructure Plane::log_structure[] = {
       "NTUN", "QfcccfffLLii",  "TimeUS,Dist,TBrg,NavBrg,AltErr,XT,XTi,AspdE,TLat,TLng,TAlt,TAspd", "smddmmmnDUmn", "F0BBB0B0GGBB" },
 
 // @LoggerMessage: ATRP
-// @Description: Pitch/Roll AutoTune messages for Plane 
+// @Description: Plane AutoTune
+// @Vehicles: Plane
 // @Field: TimeUS: Time since system startup
-// @Field: Type: Type of autotune (0 = Roll/ 1 = Pitch)
-// @Field: State: AutoTune state
-// @Field: Servo: Normalised control surface output (between -4500 to 4500)
-// @Field: Demanded: Desired Pitch/Roll rate
-// @Field: Achieved: Achieved Pitch/Roll rate
-// @Field: P: Proportional part of PID
+// @Field: Axis: tuning axis
+// @Field: State: tuning state
+// @Field: Sur: control surface deflection
+// @Field: Tar: target rate
+// @Field: Act: actual rate
+// @Field: FF0: FF value single sample
+// @Field: FF: FF value
+// @Field: P: P value
+// @Field: I: I value
+// @Field: D: D value
+// @Field: Action: action taken
+// @Field: RMAX: Rate maximum
+// @Field: TAU: time constant
     { LOG_ATRP_MSG, sizeof(AP_AutoTune::log_ATRP),
-      "ATRP", "QBBcfff",  "TimeUS,Type,State,Servo,Demanded,Achieved,P", "s---dd-", "F---00-" },
+      "ATRP", "QBBffffffffBff", "TimeUS,Axis,State,Sur,Tar,Act,FF0,FF,P,I,D,Action,RMAX,TAU", "s#-dkk------ks", "F--00000000-00" },
 
 // @LoggerMessage: STAT
 // @Description: Current status of the aircraft
@@ -371,17 +379,10 @@ const struct LogStructure Plane::log_structure[] = {
 // @Field: CRt: climb rate
 // @Field: TMix: transition throttle mix value
 // @Field: Sscl: speed scalar for tailsitter control surfaces
-// @Field: Trans: Transistion state
+// @Field: Trn: Transistion state
+// @Field: Ast: Q assist active state
     { LOG_QTUN_MSG, sizeof(QuadPlane::log_QControl_Tuning),
-      "QTUN", "QffffffeccffB", "TimeUS,ThI,ABst,ThO,ThH,DAlt,Alt,BAlt,DCRt,CRt,TMix,Sscl,Trans", "s----mmmnn---", "F----00000-0-" },
-
-// @LoggerMessage: AOA
-// @Description: Angle of attack and Side Slip Angle values
-// @Field: TimeUS: Time since system startup
-// @Field: AOA: Angle of Attack calculated from airspeed, wind vector,velocity vector 
-// @Field: SSA: Side Slip Angle calculated from airspeed, wind vector,velocity vector
-    { LOG_AOA_SSA_MSG, sizeof(log_AOA_SSA),
-      "AOA", "Qff", "TimeUS,AOA,SSA", "sdd", "F00" },
+      "QTUN", "QffffffeccffBB", "TimeUS,ThI,ABst,ThO,ThH,DAlt,Alt,BAlt,DCRt,CRt,TMix,Sscl,Trn,Ast", "s----mmmnn----", "F----00000-0--" },
 
 // @LoggerMessage: PIQR,PIQP,PIQY,PIQA
 // @Description: QuadPlane Proportional/Integral/Derivative gain values for Roll/Pitch/Yaw/Z
@@ -394,6 +395,8 @@ const struct LogStructure Plane::log_structure[] = {
 // @Field: D: derivative part of PID
 // @Field: FF: controller feed-forward portion of response
 // @Field: Dmod: scaler applied to D gain to reduce limit cycling
+// @Field: SRate: slew rate
+// @Field: Limit: 1 if I term is limited due to output saturation
     { LOG_PIQR_MSG, sizeof(log_PID),
       "PIQR", PID_FMT,  PID_LABELS, PID_UNITS, PID_MULTS },
     { LOG_PIQP_MSG, sizeof(log_PID),
@@ -414,6 +417,8 @@ const struct LogStructure Plane::log_structure[] = {
 // @Field: D: derivative part of PID
 // @Field: FF: controller feed-forward portion of response
 // @Field: Dmod: scaler applied to D gain to reduce limit cycling
+// @Field: SRate: slew rate
+// @Field: Limit: 1 if I term is limited due to output saturation
     { LOG_PIDG_MSG, sizeof(log_PID),
       "PIDG", PID_FMT,  PID_LABELS, PID_UNITS, PID_MULTS },
 
@@ -511,6 +516,10 @@ void Plane::Log_Write_Vehicle_Startup_Messages()
 {
     // only 200(?) bytes are guaranteed by AP_Logger
     Log_Write_Startup(TYPE_GROUNDSTART_MSG);
+    if (quadplane.initialised) {
+        logger.Write_MessageF("QuadPlane Frame: %s/%s", quadplane.motors->get_frame_string(),
+                                                        quadplane.motors->get_type_string());
+    }
     logger.Write_Mode(control_mode->mode_number(), control_mode_reason);
     ahrs.Log_Write_Home_And_Origin();
     gps.Write_AP_Logger_Log_Startup_messages();
@@ -528,7 +537,6 @@ void Plane::log_init(void)
 
 void Plane::Log_Write_Attitude(void) {}
 void Plane::Log_Write_Fast(void) {}
-void Plane::Log_Write_Performance() {}
 void Plane::Log_Write_Startup(uint8_t type) {}
 void Plane::Log_Write_Control_Tuning() {}
 void Plane::Log_Write_OFG_Guided() {}

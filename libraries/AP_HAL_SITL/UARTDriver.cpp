@@ -103,6 +103,17 @@ void UARTDriver::begin(uint32_t baud, uint16_t rxSpace, uint16_t txSpace)
             _uart_path = strdup(args1);
             _uart_baudrate = baudrate;
             _uart_start_connection();
+        } else if (strcmp(devtype, "fifo") == 0) {
+            if(strcmp(args1, "gps") == 0) {
+                UNUSED_RESULT(asprintf(&args1, "/tmp/gps_fifo%d", (int)_sitlState->get_instance()));
+            }
+            ::printf("Reading FIFO file @ %s\n", args1);
+            _fd = ::open(args1, O_RDONLY | O_NONBLOCK);
+            if (_fd >= 0) {
+                _connected = true;
+            } else {
+                ::printf("Failed Reading FIFO file @ %s\n", args1);       
+            }
         } else if (strcmp(devtype, "sim") == 0) {
             if (!_connected) {
                 ::printf("SIM connection %s:%s on port %u\n", args1, args2, _portNumber);
@@ -126,6 +137,9 @@ void UARTDriver::begin(uint32_t baud, uint16_t rxSpace, uint16_t txSpace)
                 ::printf("UDP multicast connection %s:%u\n", ip, port);
                 _udp_start_multicast(ip, port);
             }
+        } else if (strcmp(devtype,"none") == 0) {
+            // skipping port
+            ::printf("Skipping port %s\n", args1);
         } else {
             AP_HAL::panic("Invalid device path: %s", path);
         }
@@ -182,6 +196,26 @@ bool UARTDriver::discard_input(void)
 
 void UARTDriver::flush(void)
 {
+    // flush the write buffer - but don't fail and don't
+    // infinitely-loop.  This is not a good definition of "flush", but
+    // it was judged that we had to return from this function even if
+    // we hadn't actually done our job.
+    uint32_t start_ms = AP_HAL::millis();
+    while (AP_HAL::millis() - start_ms < 1000) {
+        if (_writebuffer.available() == 0) {
+            break;
+        }
+        _timer_tick();
+    }
+
+    // ensure that the outbound TCP queue is also empty...
+    start_ms = AP_HAL::millis();
+    while (AP_HAL::millis() - start_ms < 1000) {
+        if (((HALSITL::UARTDriver*)hal.serial(0))->get_system_outqueue_length() == 0) {
+            break;
+        }
+        usleep(1000);
+    }
 }
 
 // size_t UARTDriver::write(uint8_t c)
@@ -549,7 +583,9 @@ void UARTDriver::_uart_start_connection(void)
     tcsetattr(_fd, TCSANOW, &t);
 
     // set baudrate
-    set_speed(_uart_baudrate);
+    if (_uart_baudrate != 0) {
+        set_speed(_uart_baudrate);
+    }
 
     _connected = true;
     _use_send_recv = false;
@@ -585,6 +621,7 @@ bool UARTDriver::_select_check(int fd)
     if (fd == -1) {
         return false;
     }
+#if !APM_BUILD_TYPE(APM_BUILD_Replay)
     fd_set fds;
     struct timeval tv;
 
@@ -598,6 +635,7 @@ bool UARTDriver::_select_check(int fd)
     if (select(fd+1, &fds, nullptr, nullptr, &tv) == 1) {
         return true;
     }
+#endif
     return false;
 }
 
@@ -640,6 +678,7 @@ void UARTDriver::_timer_tick(void)
     }
     ssize_t nwritten;
     uint32_t max_bytes = 10000;
+#if !defined(HAL_BUILD_AP_PERIPH)
     SITL::SITL *_sitl = AP::sitl();
     if (_sitl && _sitl->telem_baudlimit_enable) {
         // limit byte rate to configured baudrate
@@ -651,7 +690,7 @@ void UARTDriver::_timer_tick(void)
         }
         last_tick_us = now;
     }
-
+#endif
     if (_packetise) {
         uint16_t n = _writebuffer.available();
         n = MIN(n, max_bytes);

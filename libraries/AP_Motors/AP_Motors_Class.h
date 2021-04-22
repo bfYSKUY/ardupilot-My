@@ -44,7 +44,14 @@ public:
         MOTOR_FRAME_HELI_DUAL = 11,
         MOTOR_FRAME_DODECAHEXA = 12,
         MOTOR_FRAME_HELI_QUAD = 13,
+        MOTOR_FRAME_DECA = 14,
+        MOTOR_FRAME_SCRIPTING_MATRIX = 15,
+        MOTOR_FRAME_6DOF_SCRIPTING = 16,
     };
+
+    // return string corresponding to frame_class
+    virtual const char* get_frame_string() const = 0;
+
     enum motor_frame_type {
         MOTOR_FRAME_TYPE_PLUS = 0,
         MOTOR_FRAME_TYPE_X = 1,
@@ -63,6 +70,9 @@ public:
         MOTOR_FRAME_TYPE_NYT_X = 17, // X frame, no differential torque for yaw
         MOTOR_FRAME_TYPE_BF_X_REV = 18, // X frame, betaflight ordering, reversed motors
     };
+
+    // return string corresponding to frame_type
+    virtual const char* get_type_string() const { return ""; }
 
     // Constructor
     AP_Motors(uint16_t loop_rate, uint16_t speed_hz = AP_MOTORS_SPEED_DEFAULT);
@@ -97,10 +107,16 @@ public:
     void                set_forward(float forward_in) { _forward_in = forward_in; }; // range -1 ~ +1
     void                set_lateral(float lateral_in) { _lateral_in = lateral_in; };     // range -1 ~ +1
 
+    // for 6DoF vehicles, sets the roll and pitch offset, this rotates the thrust vector in body frame
+    virtual void        set_roll_pitch(float roll_deg, float pitch_deg) {};
+
     // accessors for roll, pitch, yaw and throttle inputs to motors
     float               get_roll() const { return _roll_in; }
+    float               get_roll_ff() const { return _roll_in_ff; }
     float               get_pitch() const { return _pitch_in; }
+    float               get_pitch_ff() const { return _pitch_in_ff; }
     float               get_yaw() const { return _yaw_in; }
+    float               get_yaw_ff() const { return _yaw_in_ff; }
     float               get_throttle_out() const { return _throttle_out; }
     float               get_throttle() const { return constrain_float(_throttle_filter.get(), 0.0f, 1.0f); }
     float               get_throttle_bidirectional() const { return constrain_float(2 * (_throttle_filter.get() - 0.5f), -1.0f, 1.0f); }
@@ -147,6 +163,9 @@ public:
         uint8_t throttle_lower  : 1; // we have reached throttle's lower limit
         uint8_t throttle_upper  : 1; // we have reached throttle's upper limit
     } limit;
+
+    // set limit flag for pitch, roll and yaw
+    void set_limit_flag_pitch_roll_yaw(bool flag);
 
     //
     // virtual functions that should be implemented by child classes
@@ -200,13 +219,22 @@ public:
                     PWM_TYPE_DSHOT1200  = 7};
     pwm_type            get_pwm_type(void) const { return (pwm_type)_pwm_type.get(); }
 
+    MAV_TYPE get_frame_mav_type() const { return _mav_type; }
+
 protected:
     // output functions that should be overloaded by child classes
     virtual void        output_armed_stabilizing() = 0;
     virtual void        rc_write(uint8_t chan, uint16_t pwm);
     virtual void        rc_write_angle(uint8_t chan, int16_t angle_cd);
     virtual void        rc_set_freq(uint32_t mask, uint16_t freq_hz);
-    virtual uint32_t    rc_map_mask(uint32_t mask) const;
+
+
+    /*
+      map an internal motor mask to real motor mask, accounting for
+      SERVOn_FUNCTION mappings, and allowing for multiple outputs per
+      motor number
+    */
+    uint32_t    motor_mask_to_srv_channel_mask(uint32_t mask) const;
 
     // add a motor to the motor map
     void add_motor_num(int8_t motor_num);
@@ -253,6 +281,8 @@ protected:
     bool                _thrust_boost;          // true if thrust boost is enabled to handle motor failure
     bool                _thrust_balanced;       // true when output thrust is well balanced
     float               _thrust_boost_ratio;    // choice between highest and second highest motor output for output mixing (0 ~ 1). Zero is normal operation
+
+    MAV_TYPE _mav_type; // MAV_TYPE_GENERIC = 0;
 
 private:
 

@@ -139,6 +139,7 @@ void AP_LandingGear::deploy()
     // set deployed flag
     _deployed = true;
     _have_changed = true;
+    AP::logger().Write_Event(LogEvent::LANDING_GEAR_DEPLOYED);
 }
 
 /// retract - retract landing gear
@@ -150,6 +151,7 @@ void AP_LandingGear::retract()
     // reset deployed flag
     _deployed = false;
     _have_changed = true;
+    AP::logger().Write_Event(LogEvent::LANDING_GEAR_RETRACTED);
 
     // send message only if output has been configured
     if (SRV_Channels::function_assigned(SRV_Channel::k_landing_gear_control)) {
@@ -162,7 +164,7 @@ bool AP_LandingGear::deployed()
     if (_pin_deployed == -1) {
         return _deployed;
     } else {
-        return hal.gpio->read(_pin_deployed) == _pin_deployed_polarity ? true : false;
+        return hal.gpio->read(_pin_deployed) == _pin_deployed_polarity;
     }
 }
 
@@ -176,7 +178,7 @@ AP_LandingGear::LG_LandingGear_State AP_LandingGear::get_state()
     return gear_state_current;
 }
 
-uint32_t AP_LandingGear::get_gear_state_duration_ms()
+uint32_t AP_LandingGear::get_gear_state_duration_ms() const
 {
     if (last_gear_event_ms == 0) {
         return 0;
@@ -185,7 +187,7 @@ uint32_t AP_LandingGear::get_gear_state_duration_ms()
     return AP_HAL::millis() - last_gear_event_ms;
 }
 
-uint32_t AP_LandingGear::get_wow_state_duration_ms()
+uint32_t AP_LandingGear::get_wow_state_duration_ms() const
 {
     if (last_wow_event_ms == 0) {
         return 0;

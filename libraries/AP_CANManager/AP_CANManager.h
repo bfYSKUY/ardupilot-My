@@ -42,7 +42,7 @@ public:
         return _singleton;
     }
 
-    enum LogLevel {
+    enum LogLevel : uint8_t {
         LOG_NONE,
         LOG_ERROR,
         LOG_WARNING,
@@ -53,13 +53,19 @@ public:
     enum Driver_Type : uint8_t {
         Driver_Type_None = 0,
         Driver_Type_UAVCAN = 1,
-        Driver_Type_KDECAN = 2,
+        // 2 was KDECAN -- do not re-use
         Driver_Type_ToshibaCAN = 3,
         Driver_Type_PiccoloCAN = 4,
         Driver_Type_CANTester = 5,
+        Driver_Type_EFI_NWPMU = 6,
+        Driver_Type_USD1 = 7,
+        Driver_Type_KDECAN = 8,
     };
 
     void init(void);
+
+    // register a new driver
+    bool register_driver(Driver_Type dtype, AP_CANDriver *driver);
 
     // returns number of active CAN Drivers
     uint8_t get_num_drivers(void) const
@@ -76,10 +82,16 @@ public:
         return nullptr;
     }
 
+    // returns current log level
+    LogLevel get_log_level(void) const
+    {
+        return LogLevel(_loglevel.get());
+    }
+    
     // Method to log status and debug information for review while debugging
     void log_text(AP_CANManager::LogLevel loglevel, const char *tag, const char *fmt, ...);
 
-    uint32_t log_retrieve(char* data, uint32_t max_size) const;
+    void log_retrieve(ExpandingString &str) const;
 
     // return driver type index i
     Driver_Type get_driver_type(uint8_t i) const
@@ -133,7 +145,7 @@ private:
     };
 
     CANIface_Params _interfaces[HAL_NUM_CAN_IFACES];
-    AP_CANDriver* _drivers[HAL_MAX_CAN_PROTOCOL_DRIVERS] {};
+    AP_CANDriver* _drivers[HAL_MAX_CAN_PROTOCOL_DRIVERS];
     CANDriver_Params _drv_param[HAL_MAX_CAN_PROTOCOL_DRIVERS];
     Driver_Type _driver_type_cache[HAL_MAX_CAN_PROTOCOL_DRIVERS];
 
@@ -144,6 +156,8 @@ private:
 
     char* _log_buf;
     uint32_t _log_pos;
+
+    HAL_Semaphore _sem;
 };
 
 namespace AP
