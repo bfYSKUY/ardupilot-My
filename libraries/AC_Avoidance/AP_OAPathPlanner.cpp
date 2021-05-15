@@ -24,8 +24,8 @@
 extern const AP_HAL::HAL &hal;
 
 // parameter defaults
-const float OA_LOOKAHEAD_DEFAULT = 3;  // 默认15m
-const float OA_MARGIN_MAX_DEFAULT = 5;
+const float OA_LOOKAHEAD_DEFAULT = 5;  // 默认15m
+const float OA_MARGIN_MAX_DEFAULT = 3;  //飞机应远离障碍物的距离（以米为单位） 5
 
 const int16_t OA_TIMEOUT_MS = 2000;             // avoidance results over 2 seconds old are ignored
 
@@ -36,7 +36,7 @@ const AP_Param::GroupInfo AP_OAPathPlanner::var_info[] = {
     // @Description: Enabled/disable path planning around obstacles
     // @Values: 0:Disabled,1:BendyRuler,2:Dijkstra
     // @User: Standard
-    AP_GROUPINFO_FLAGS("TYPE", 1,  AP_OAPathPlanner, _type, OA_PATHPLAN_DISABLED, AP_PARAM_FLAG_ENABLE),  //默认禁用
+    AP_GROUPINFO_FLAGS("TYPE", 1,  AP_OAPathPlanner, _type, OA_PATHPLAN_BENDYRULER, AP_PARAM_FLAG_ENABLE),  //默认禁用 OA_PATHPLAN_DISABLED
 
     // @Param: LOOKAHEAD
     // @DisplayName: Object Avoidance look ahead distance maximum
@@ -209,7 +209,7 @@ void AP_OAPathPlanner::avoidance_thread()  //避障线程
         }
         avoidance_latest_ms = now;
 
-        _oadatabase.update();
+        _oadatabase.update();  //更新数据库
 #else
         hal.scheduler->delay(100);
         const uint32_t now = AP_HAL::millis();

@@ -37,7 +37,7 @@ extern const AP_HAL::HAL& hal;
 const AP_Param::GroupInfo AP_OADatabase::var_info[] = {
 
     // @Param: SIZE
-    // @DisplayName: OADatabase maximum number of points
+    // @DisplayName: OADatabase maximum number of points  //可以跟踪的最大障碍物数 
     // @Description: OADatabase maximum number of points. Set to 0 to disable the OA Database. Larger means more points but is more cpu intensive to process
     // @Range: 0 10000
     // @User: Advanced
@@ -54,7 +54,7 @@ const AP_Param::GroupInfo AP_OADatabase::var_info[] = {
     AP_GROUPINFO("EXPIRE", 2, AP_OADatabase, _database_expiry_seconds, AP_OADATABASE_TIMEOUT_SECONDS_DEFAULT),
 
     // @Param: QUEUE_SIZE
-    // @DisplayName: OADatabase queue maximum number of points
+    // @DisplayName: OADatabase queue maximum number of points   //激光雷达和障碍物数据库之间的缓冲区大小。 通常，可以将其保留为默认值 
     // @Description: OADatabase queue maximum number of points. This in an input buffer size. Larger means it can handle larger bursts of incoming data points to filter into the database. No impact on cpu, only RAM. Recommend larger for faster datalinks or for sensors that generate a lot of data.
     // @Range: 1 200
     // @User: Advanced

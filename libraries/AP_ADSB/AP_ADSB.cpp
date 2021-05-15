@@ -55,11 +55,11 @@ AP_ADSB *AP_ADSB::_singleton;
 // table of user settable parameters
 const AP_Param::GroupInfo AP_ADSB::var_info[] = {
     // @Param: ENABLE
-    // @DisplayName: Enable ADSB
+    // @DisplayName: Enable ADSB        //可使 空中交通管制员和其他飞行员准确跟踪飞机，而无需使用常规雷
     // @Description: Enable ADS-B
     // @Values: 0:Disabled,1:Enabled
     // @User: Standard
-    AP_GROUPINFO_FLAGS("ENABLE",     0, AP_ADSB, _enabled,    0, AP_PARAM_FLAG_ENABLE),
+    AP_GROUPINFO_FLAGS("ENABLE",     0, AP_ADSB, _enabled,    0, AP_PARAM_FLAG_ENABLE),  //0   //启用1
 
     // index 1 is reserved - was BEHAVIOR
 

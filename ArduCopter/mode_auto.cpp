@@ -954,7 +954,7 @@ void ModeAuto::loiter_to_alt_run()
         G_Dt);
 
     // get avoidance adjusted climb rate
-    target_climb_rate = get_avoidance_adjusted_climbrate(target_climb_rate);
+    target_climb_rate = get_avoidance_adjusted_climbrate(target_climb_rate);  //仅在高度控制时有调用
 
     pos_control->set_alt_target_from_climb_rate_ff(target_climb_rate, G_Dt, false);
     pos_control->update_z_controller();

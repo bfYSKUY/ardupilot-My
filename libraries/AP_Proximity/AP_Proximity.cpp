@@ -38,14 +38,14 @@ const AP_Param::GroupInfo AP_Proximity::var_info[] = {
     // @Values: 0:None,7:LightwareSF40c,1:LightWareSF40C-legacy,2:MAVLink,3:TeraRangerTower,4:RangeFinder,5:RPLidarA2,6:TeraRangerTowerEvo,10:SITL,11:MorseSITL,12:AirSimSITL
     // @RebootRequired: True
     // @User: Standard
-    AP_GROUPINFO("_TYPE",   1, AP_Proximity, _type[0], 0),
+    AP_GROUPINFO("_TYPE",   1, AP_Proximity, _type[0], 4),   //默认0
 
     // @Param: _ORIENT
     // @DisplayName: Proximity sensor orientation
     // @Description: Proximity sensor orientation
     // @Values: 0:Default,1:Upside Down
     // @User: Standard
-    AP_GROUPINFO("_ORIENT", 2, AP_Proximity, _orientation[0], 0),
+    AP_GROUPINFO("_ORIENT", 2, AP_Proximity, _orientation[0], 0),  //默认朝前
 
     // @Param: _YAW_CORR
     // @DisplayName: Proximity sensor yaw correction

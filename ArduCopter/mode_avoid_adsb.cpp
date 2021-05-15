@@ -34,5 +34,5 @@ void ModeAvoidADSB::run()
     // re-use guided mode's velocity controller
     // Note: this is safe from interference from GCSs and companion computer's whose guided mode
     //       position and velocity requests will be ignored while the vehicle is not in guided mode
-    ModeGuided::run();
+    ModeGuided::run();  //避障操作和运用
 }
